@@ -1,0 +1,162 @@
+
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Imagix Studio</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Manrope:wght@400;500;600;700;800;900&family=Playfair+Display:ital,wght@0,900;1,900&display=swap" rel="stylesheet">
+    <script>
+      tailwind.config = {
+        theme: {
+          extend: {
+            fontFamily: {
+              sans: ['Inter', 'sans-serif'],
+              display: ['Manrope', 'sans-serif'],
+              heading: ['Tan-St-Canard', 'Playfair Display', 'serif'],
+            },
+            colors: {
+              brand: {
+                bg: '#020204',
+                surface: '#0A0A0C',
+                border: '#FFFFFF1A',
+                text: '#ECECEC',
+                textDim: '#888888',
+                accent: '#FFFFFF',
+              }
+            },
+            animation: {
+              'fade-in': 'fadeIn 0.6s ease-out forwards',
+              'slide-up': 'slideUp 0.8s cubic-bezier(0.16, 1, 0.3, 1) forwards',
+              'pulse-slow': 'pulse 4s cubic-bezier(0.4, 0, 0.6, 1) infinite',
+              'glow': 'glow 2s ease-in-out infinite alternate',
+              'text-reveal': 'textReveal 1.2s cubic-bezier(0.16, 1, 0.3, 1) forwards',
+            },
+            keyframes: {
+              fadeIn: {
+                'from': { opacity: '0' },
+                'to': { opacity: '1' },
+              },
+              slideUp: {
+                'from': { opacity: '0', transform: 'translateY(20px)' },
+                'to': { opacity: '1', transform: 'translateY(0)' },
+              },
+              glow: {
+                'from': { boxShadow: '0 0 10px rgba(255, 255, 255, 0.1)' },
+                'to': { boxShadow: '0 0 20px rgba(255, 255, 255, 0.2), 0 0 10px rgba(255, 255, 255, 0.1)' }
+              },
+              textReveal: {
+                '0%': { opacity: '0', transform: 'translateY(40px) skewY(5deg)', filter: 'blur(10px)' },
+                '100%': { opacity: '1', transform: 'translateY(0) skewY(0deg)', filter: 'blur(0)' }
+              }
+            }
+          }
+        }
+      }
+    </script>
+    <style>
+      @font-face {
+        font-family: 'Tan-St-Canard';
+        src: url('https://fonts.cdnfonts.com/s/76251/Tan-St-Canard.woff') format('woff');
+        font-weight: normal;
+        font-style: normal;
+      }
+
+      body {
+        background-color: #020204;
+        color: #ECECEC;
+        overflow-x: hidden;
+      }
+
+      /* Custom Scrollbar */
+      ::-webkit-scrollbar { width: 6px; }
+      ::-webkit-scrollbar-track { background: #020204; }
+      ::-webkit-scrollbar-thumb { background: #333; border-radius: 99px; }
+      ::-webkit-scrollbar-thumb:hover { background: #555; }
+
+      /* UI Components */
+      
+      .glass-panel {
+        background: rgba(15, 15, 20, 0.45);
+        backdrop-filter: blur(28px) saturate(160%);
+        -webkit-backdrop-filter: blur(28px) saturate(160%);
+        border: 1px solid rgba(255, 255, 255, 0.1);
+      }
+
+      .btn-primary {
+        background: rgba(255, 255, 255, 0.9);
+        backdrop-filter: blur(16px);
+        -webkit-backdrop-filter: blur(16px);
+        color: #000000;
+        font-family: 'Manrope', sans-serif;
+        font-weight: 700;
+        border-radius: 12px;
+        transition: all 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+        border: 1px solid rgba(255, 255, 255, 0.2);
+      }
+      
+      .btn-primary:hover {
+        transform: translateY(-2px);
+        background: #FFFFFF;
+        box-shadow: 0 10px 40px rgba(255, 255, 255, 0.2);
+      }
+
+      .btn-secondary {
+        background: rgba(255, 255, 255, 0.05);
+        backdrop-filter: blur(16px);
+        -webkit-backdrop-filter: blur(16px);
+        border: 1px solid rgba(255, 255, 255, 0.1);
+        color: #CCC;
+        font-family: 'Manrope', sans-serif;
+        font-weight: 600;
+        border-radius: 12px;
+        transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+      }
+      
+      .btn-secondary:hover {
+        background: rgba(255, 255, 255, 0.1);
+        border-color: rgba(255, 255, 255, 0.2);
+        color: #FFF;
+        transform: translateY(-1px);
+        box-shadow: 0 4px 20px rgba(0, 0, 0, 0.2);
+      }
+
+      .text-gradient {
+        background: linear-gradient(135deg, #FFFFFF 0%, #A1A1AA 100%);
+        -webkit-background-clip: text;
+        -webkit-text-fill-color: transparent;
+      }
+      
+      .text-glow {
+        text-shadow: 0 0 30px rgba(255, 255, 255, 0.3);
+      }
+
+      .cosmic-bg {
+        position: fixed;
+        top: 0; left: 0; width: 100%; height: 100%;
+        background: 
+          radial-gradient(circle at 50% 0%, rgba(200, 200, 255, 0.08), transparent 70%),
+          radial-gradient(circle at 80% 80%, rgba(255, 255, 255, 0.05), transparent 50%);
+        z-index: -2;
+        pointer-events: none;
+      }
+
+      .delay-200 { animation-delay: 0.2s; }
+    </style>
+  <script type="importmap">
+{
+  "imports": {
+    "react-dom/": "https://esm.sh/react-dom@^19.2.4/",
+    "react/": "https://esm.sh/react@^19.2.4/",
+    "react": "https://esm.sh/react@^19.2.4",
+    "lucide-react": "https://esm.sh/lucide-react@^0.563.0",
+    "@google/genai": "https://esm.sh/@google/genai@^1.40.0"
+  }
+}
+</script>
+</head>
+  <body>
+    <div id="root"></div>
+  </body>
+</html>
