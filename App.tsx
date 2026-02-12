@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect, useRef } from 'react';
 import { 
   Wand2, 
@@ -8,72 +7,77 @@ import {
   Loader2, 
   RefreshCw, 
   Edit3, 
-  Sparkles,
-  Key,
-  History,
-  Settings2,
-  Zap,
-  Share2,
-  XCircle,
-  Maximize2,
-  Paperclip,
-  X,
-  Plus,
-  Layers,
-  ArrowRight,
-  Command,
-  Trash2,
-  Menu,
-  ChevronDown,
-  Palette,
-  Terminal,
-  Check,
-  Facebook,
-  Chrome,
-  Camera,
-  Aperture,
-  Cpu,
-  Lock,
-  Search,
-  CreditCard,
-  Calendar,
-  User,
-  Upload,
-  Camera as CameraIcon,
-  Pencil,
-  RotateCcw,
-  Globe,
-  Dna,
-  Clapperboard,
-  Mountain,
-  Box,
-  Video,
-  Eye,
-  Scan,
-  Film,
-  Gem,
-  ShieldCheck,
-  LogOut,
-  Clock,
-  BrainCircuit,
-  Activity,
-  Coins,
-  Twitter,
-  Linkedin,
-  Copy,
-  CheckCircle2,
-  Smartphone,
-  Tv,
-  Monitor,
-  Instagram as InstaIcon,
-  Undo,
-  Redo
+  Sparkles, 
+  Key, 
+  History, 
+  Settings2, 
+  Zap, 
+  Share2, 
+  XCircle, 
+  Maximize2, 
+  Paperclip, 
+  X, 
+  Plus, 
+  Layers, 
+  ArrowRight, 
+  Command, 
+  Trash2, 
+  Menu, 
+  ChevronDown, 
+  Palette, 
+  Terminal, 
+  Check, 
+  Facebook, 
+  Chrome, 
+  Camera, 
+  Aperture, 
+  Cpu, 
+  Lock, 
+  Search, 
+  CreditCard, 
+  Calendar, 
+  User, 
+  Upload, 
+  Camera as CameraIcon, 
+  Pencil, 
+  RotateCcw, 
+  Globe, 
+  Dna, 
+  Clapperboard, 
+  Mountain, 
+  Box, 
+  Video, 
+  Eye, 
+  Scan, 
+  Film, 
+  Gem, 
+  ShieldCheck, 
+  LogOut, 
+  Clock, 
+  BrainCircuit, 
+  Activity, 
+  Coins, 
+  Twitter, 
+  Linkedin, 
+  Copy, 
+  CheckCircle2, 
+  Smartphone, 
+  Tv, 
+  Monitor, 
+  Instagram as InstaIcon, 
+  Undo, 
+  Redo, 
+  Eraser, 
+  Sun, 
+  Moon,
+  ScanEye
 } from 'lucide-react';
 import { AppStep, HistoryItem, AspectRatio, ImageResolution } from './types';
-import { generateEnhancedPrompt, generateImage } from './services/geminiService';
+import { generateEnhancedPrompt, generateImage, analyzeImage } from './services/geminiService';
 
 // --- Types ---
 type PlanType = 'free' | 'standard' | 'pro';
+type Theme = 'dark' | 'light';
 
 // --- Visual Styles ---
 const STYLE_PRESETS = [
@@ -96,18 +100,60 @@ const ANGLE_PRESETS = [
 ];
 
 const ASPECT_RATIO_CONFIG = [
-  { id: '1:1' as AspectRatio, label: 'Post' },
-  { id: '16:9' as AspectRatio, label: 'Thumbnail' },
-  { id: '9:16' as AspectRatio, label: 'Reel' },
-  { id: '3:4' as AspectRatio, label: 'Insta Post' },
+  { id: '1:1' as AspectRatio, label: 'Square' },
+  { id: '16:9' as AspectRatio, label: 'Cinema' },
+  { id: '21:9' as AspectRatio, label: 'Wide' },
+  { id: '4:3' as AspectRatio, label: 'Monitor' },
+  { id: '3:2' as AspectRatio, label: 'Photo' },
+  { id: '2:3' as AspectRatio, label: 'Classic' },
+  { id: '3:4' as AspectRatio, label: 'Portrait' },
+  { id: '9:16' as AspectRatio, label: 'Story' },
 ];
 
 const CAMERA_ANGLES = ["Default", "Eye-Level", "Low Angle", "High Angle", "Bird's Eye", "Dutch Angle"];
 const LENS_TYPES = ["Default", "Wide (24mm)", "Standard (50mm)", "Portrait (85mm)", "Macro", "Fisheye"];
 
+// --- Helper Functions ---
+
+const removeWhiteBackground = (imageSrc: string): Promise<string> => {
+  return new Promise((resolve) => {
+    const img = new Image();
+    img.crossOrigin = "Anonymous";
+    img.onload = () => {
+      const canvas = document.createElement('canvas');
+      canvas.width = img.width;
+      canvas.height = img.height;
+      const ctx = canvas.getContext('2d', { willReadFrequently: true });
+      if (!ctx) {
+         resolve(imageSrc);
+         return;
+      }
+      ctx.drawImage(img, 0, 0);
+      const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+      const data = imageData.data;
+      const threshold = 240; // Threshold for white detection
+      
+      for (let i = 0; i < data.length; i += 4) {
+        const r = data[i];
+        const g = data[i + 1];
+        const b = data[i + 2];
+        // If pixel is very light (white/near white), make it transparent
+        if (r > threshold && g > threshold && b > threshold) {
+           data[i + 3] = 0; 
+        }
+      }
+      
+      ctx.putImageData(imageData, 0, 0);
+      resolve(canvas.toDataURL('image/png'));
+    };
+    img.onerror = () => resolve(imageSrc);
+    img.src = imageSrc;
+  });
+};
+
 // --- Components ---
 
-const SilverProgressBar = () => {
+const SilverProgressBar = ({ isDark }: { isDark: boolean }) => {
   const [progress, setProgress] = useState(0);
 
   useEffect(() => {
@@ -128,32 +174,130 @@ const SilverProgressBar = () => {
   return (
     <div className="fixed top-0 left-0 right-0 h-[3px] z-[9999] bg-transparent overflow-hidden">
        <div 
-         className="h-full bg-gradient-to-r from-zinc-500 via-white to-zinc-500 shadow-[0_0_15px_rgba(255,255,255,0.8)] transition-all duration-300 ease-out" 
+         className={`h-full shadow-[0_0_15px_rgba(255,255,255,0.8)] transition-all duration-300 ease-out ${
+            isDark 
+              ? 'bg-gradient-to-r from-zinc-500 via-white to-zinc-500' 
+              : 'bg-gradient-to-r from-zinc-400 via-black to-zinc-400'
+         }`}
          style={{ width: `${progress}%` }}
        ></div>
     </div>
   );
 };
 
-const Logo = ({ large = false }: { large?: boolean }) => (
+const MagicLoader = () => {
+  const canvasRef = useRef<HTMLCanvasElement>(null);
+
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
+
+    let particles: { x: number; y: number; size: number; speedY: number; speedX: number; color: string; alpha: number; life: number }[] = [];
+    let animationId: number;
+
+    const colors = ['#A855F7', '#D8B4FE', '#E9D5FF', '#ffffff', '#C084FC'];
+
+    const createParticle = () => {
+       const x = Math.random() * canvas.width;
+       const y = canvas.height + Math.random() * 20;
+       return {
+         x,
+         y,
+         size: Math.random() * 3,
+         speedY: Math.random() * 2 + 1,
+         speedX: (Math.random() - 0.5) * 1,
+         color: colors[Math.floor(Math.random() * colors.length)],
+         alpha: 1,
+         life: Math.random() * 0.5 + 0.5
+       };
+    };
+
+    const resize = () => {
+      const parent = canvas.parentElement;
+      if (parent) {
+         canvas.width = parent.clientWidth;
+         canvas.height = parent.clientHeight;
+      }
+    };
+
+    const init = () => {
+       resize();
+       for(let i=0; i<50; i++) particles.push(createParticle());
+    };
+
+    const animate = () => {
+       if(!ctx) return;
+       ctx.clearRect(0, 0, canvas.width, canvas.height);
+       
+       if (particles.length < 150) {
+          particles.push(createParticle());
+       }
+
+       for (let i = 0; i < particles.length; i++) {
+          const p = particles[i];
+          ctx.globalAlpha = p.alpha;
+          ctx.fillStyle = p.color;
+          ctx.shadowBlur = 10;
+          ctx.shadowColor = p.color;
+          ctx.beginPath();
+          ctx.arc(p.x, p.y, p.size, 0, Math.PI * 2);
+          ctx.fill();
+
+          p.y -= p.speedY;
+          p.x += p.speedX;
+          p.alpha -= 0.005;
+
+          if (p.alpha <= 0 || p.y < 0) {
+             particles[i] = createParticle();
+          }
+       }
+       animationId = requestAnimationFrame(animate);
+    };
+
+    window.addEventListener('resize', resize);
+    init();
+    animate();
+
+    return () => {
+       window.removeEventListener('resize', resize);
+       cancelAnimationFrame(animationId);
+    };
+  }, []);
+
+  return (
+    <div className="absolute inset-0 z-50 flex flex-col items-center justify-center bg-black/60 backdrop-blur-sm animate-fade-in overflow-hidden rounded-[2.2rem]">
+       <canvas ref={canvasRef} className="absolute inset-0 w-full h-full pointer-events-none" />
+       <div className="relative z-10 flex flex-col items-center gap-4">
+          <div className="p-4 rounded-full bg-purple-500/20 border border-purple-500/40 animate-pulse-slow shadow-[0_0_30px_rgba(168,85,247,0.4)]">
+             <Wand2 size={32} className="text-purple-300 animate-spin-slow" />
+          </div>
+          <span className="text-sm font-bold text-white uppercase tracking-[0.2em] text-glow">Removing Background</span>
+       </div>
+    </div>
+  );
+};
+
+const Logo = ({ large = false, isDark = true }: { large?: boolean, isDark?: boolean }) => (
   <div className="flex flex-col select-none group cursor-pointer">
     {large && (
-      <span className="text-[10px] md:text-xs font-bold tracking-[0.3em] text-zinc-500 uppercase mb-2 ml-1 opacity-70">
+      <span className={`text-[10px] md:text-xs font-bold tracking-[0.3em] uppercase mb-2 ml-1 opacity-70 ${isDark ? 'text-zinc-500' : 'text-zinc-400'}`}>
         Powered by Addot
       </span>
     )}
     <div className="relative flex items-baseline gap-1">
-      <span className={`font-display font-black tracking-tighter text-white transition-all duration-300 ${large ? 'text-6xl md:text-8xl' : 'text-xl'}`}>
+      <span className={`font-display font-black tracking-tighter transition-all duration-300 ${large ? 'text-6xl md:text-8xl' : 'text-xl'} ${isDark ? 'text-white' : 'text-zinc-900'}`}>
         imagix
       </span>
-      <span className={`font-display font-bold tracking-[0.2em] text-white/40 group-hover:text-white/80 transition-colors ${large ? 'text-xl md:text-3xl' : 'text-[0.6rem]'}`}>
+      <span className={`font-display font-bold tracking-[0.2em] transition-colors ${large ? 'text-xl md:text-3xl' : 'text-[0.6rem]'} ${isDark ? 'text-white/40 group-hover:text-white/80' : 'text-zinc-400 group-hover:text-zinc-900'}`}>
         STUDIO
       </span>
     </div>
   </div>
 );
 
-const StarField = () => {
+const StarField = ({ isDark }: { isDark: boolean }) => {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -182,9 +326,9 @@ const StarField = () => {
     };
     const draw = () => {
       ctx.clearRect(0, 0, canvas.width, canvas.height);
-      ctx.fillStyle = '#FFFFFF';
+      ctx.fillStyle = isDark ? '#FFFFFF' : '#000000';
       stars.forEach(star => {
-        ctx.globalAlpha = star.opacity;
+        ctx.globalAlpha = isDark ? star.opacity : star.opacity * 0.3; // Dimmer stars in light mode
         ctx.beginPath();
         ctx.arc(star.x, star.y, star.size, 0, Math.PI * 2);
         ctx.fill();
@@ -203,7 +347,7 @@ const StarField = () => {
       window.removeEventListener('resize', resize);
       cancelAnimationFrame(animationFrameId);
     };
-  }, []);
+  }, [isDark]);
   return <canvas ref={canvasRef} className="fixed inset-0 z-[-1] opacity-60 pointer-events-none" />;
 };
 
@@ -218,12 +362,8 @@ const DrawingCanvas: React.FC<{
   const [isDrawing, setIsDrawing] = useState(false);
   const [showPromptInput, setShowPromptInput] = useState(false);
   const [editPrompt, setEditPrompt] = useState('');
-  const [brushSize] = useState(40); // Fixed size for magic brush
+  const [brushSize] = useState(40);
   
-  // Particle system for magic effect
-  const particlesRef = useRef<{x: number, y: number, life: number, vx: number, vy: number}[]>([]);
-  const requestRef = useRef<number>();
-
   useEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
@@ -231,17 +371,6 @@ const DrawingCanvas: React.FC<{
     if (!ctx) return;
     canvas.width = 1024;
     canvas.height = 1024;
-    
-    // Animation loop for particles
-    const animate = () => {
-      if (!ctx || !containerRef.current) return;
-      // We don't clear rect here because we want to keep the drawing, 
-      // particles are rendered on a separate layer in a real app, 
-      // but for this mask canvas, we only want to render the WHITE strokes.
-      // So we won't render particles ON the mask canvas. 
-      // Instead, we just use this loop if we want animated brush strokes, 
-      // but standard canvas stroking is better for mask generation.
-    };
   }, []);
 
   const startDrawing = (e: React.MouseEvent | React.TouchEvent) => { 
@@ -250,8 +379,11 @@ const DrawingCanvas: React.FC<{
   };
   
   const stopDrawing = () => { 
-    setIsDrawing(false); 
-    if (canvasRef.current) canvasRef.current.getContext('2d')?.beginPath(); 
+    if (isDrawing) {
+      setIsDrawing(false); 
+      if (canvasRef.current) canvasRef.current.getContext('2d')?.beginPath();
+      setShowPromptInput(true);
+    }
   };
   
   const draw = (e: React.MouseEvent | React.TouchEvent) => {
@@ -277,21 +409,17 @@ const DrawingCanvas: React.FC<{
     const x = (clientX - rect.left) * scaleX;
     const y = (clientY - rect.top) * scaleY;
     
-    // Magic Silver Brush Style
     ctx.lineWidth = brushSize;
     ctx.lineCap = 'round';
     ctx.lineJoin = 'round';
-    ctx.strokeStyle = 'rgba(255, 255, 255, 1.0)'; // Pure white for mask
+    ctx.strokeStyle = 'rgba(255, 255, 255, 1.0)';
     ctx.shadowBlur = 15;
-    ctx.shadowColor = 'rgba(192, 192, 255, 0.8)'; // Silver/Blueish glow
+    ctx.shadowColor = 'rgba(192, 192, 255, 0.8)';
     
     ctx.lineTo(x, y);
     ctx.stroke();
     ctx.beginPath();
     ctx.moveTo(x, y);
-
-    // Add Sparkles (Visual only - we'd need a separate canvas layer for true UI particles so they don't bake into mask)
-    // For now, the shadowBlur gives a nice glowing effect.
   };
 
   const handleMagicSubmit = () => {
@@ -331,25 +459,23 @@ const DrawingCanvas: React.FC<{
               onTouchEnd={stopDrawing} 
               className={`absolute inset-0 w-full h-full object-contain z-10 ${isDrawing ? 'cursor-none' : 'cursor-crosshair'}`} 
             />
-            {/* Custom Cursor Follower could go here */}
             
             {!showPromptInput && (
-               <div className="absolute bottom-8 left-1/2 -translate-x-1/2 z-30 flex gap-4 animate-slide-up">
-                  <button onClick={() => canvasRef.current?.getContext('2d')?.clearRect(0, 0, canvasRef.current.width, canvasRef.current.height)} className="px-6 py-3 rounded-xl bg-black/60 backdrop-blur border border-white/10 hover:bg-white/10 text-white font-bold text-xs uppercase tracking-widest transition-all">
+               <div className="absolute bottom-6 left-1/2 -translate-x-1/2 z-30 flex gap-2 animate-slide-up">
+                  <button onClick={() => canvasRef.current?.getContext('2d')?.clearRect(0, 0, canvasRef.current.width, canvasRef.current.height)} className="px-4 py-2 rounded-lg bg-black/60 backdrop-blur border border-white/10 hover:bg-white/10 text-white font-bold text-[10px] uppercase tracking-widest transition-all">
                     Clear
                   </button>
-                  <button onClick={() => setShowPromptInput(true)} className="px-8 py-3 rounded-xl bg-gradient-to-r from-indigo-500 to-purple-500 text-white font-bold text-xs uppercase tracking-widest shadow-lg hover:scale-105 transition-all flex items-center gap-2">
+                  <button onClick={() => setShowPromptInput(true)} className="px-6 py-2 rounded-lg bg-gradient-to-r from-indigo-500 to-purple-500 text-white font-bold text-[10px] uppercase tracking-widest shadow-lg hover:scale-105 transition-all flex items-center gap-2">
                     <Sparkles size={14} /> Magic Edit
                   </button>
-                  {/* Keep the original functionality accessible if needed */}
-                  <button onClick={() => onSave(canvasRef.current?.toDataURL('image/png') || '')} className="px-4 py-3 rounded-xl bg-white/5 border border-white/10 hover:bg-white/10 text-zinc-400 text-[10px] font-bold uppercase tracking-widest transition-all">
+                  <button onClick={() => onSave(canvasRef.current?.toDataURL('image/png') || '')} className="px-4 py-2 rounded-lg bg-white/5 border border-white/10 hover:bg-white/10 text-zinc-400 text-[10px] font-bold uppercase tracking-widest transition-all">
                     Use as Ref
                   </button>
                </div>
             )}
 
             {showPromptInput && (
-              <div className="absolute bottom-0 left-0 right-0 p-6 bg-black/80 backdrop-blur-xl border-t border-white/10 z-40 animate-slide-up rounded-b-3xl">
+              <div className="absolute bottom-0 left-0 right-0 p-4 bg-black/80 backdrop-blur-xl border-t border-white/10 z-40 animate-slide-up rounded-b-3xl">
                  <div className="max-w-3xl mx-auto flex flex-col gap-4">
                     <div className="flex items-center justify-between">
                        <label className="text-xs font-bold text-indigo-400 uppercase tracking-widest flex items-center gap-2">
@@ -449,16 +575,52 @@ const RatioShape = ({ ratio }: { ratio: string }) => {
   switch(ratio) {
     case '1:1': 
       return <div className={`w-5 h-5 ${common}`} />;
+    case '2:3':
+      return <div className={`w-4 h-6 ${common}`} />;
+    case '3:2':
+      return <div className={`w-6 h-4 ${common}`} />;
+    case '4:3':
+      return <div className={`w-6 h-4.5 ${common}`} />;
+    case '3:4': 
+      return <div className={`w-4.5 h-6 ${common}`} />;
     case '16:9': 
       return <div className={`w-7 h-4 ${common}`} />;
     case '9:16': 
       return <div className={`w-4 h-7 ${common}`} />;
-    case '3:4': 
-      return <div className={`w-5 h-[26px] ${common}`} />;
+    case '21:9':
+      return <div className={`w-8 h-3.5 ${common}`} />;
     default: 
       return <div className={`w-5 h-5 ${common}`} />;
   }
 };
+
+const LoginScreen = ({ onConnect, isDark }: { onConnect: () => void, isDark: boolean }) => (
+  <div className={`min-h-screen flex flex-col items-center justify-center p-4 relative overflow-hidden ${isDark ? 'bg-black text-white' : 'bg-zinc-50 text-zinc-900'}`}>
+     <StarField isDark={isDark} />
+     <div className="z-10 flex flex-col items-center gap-8 animate-slide-up max-w-md w-full text-center">
+        <div className="mb-4"><Logo large isDark={isDark} /></div>
+        <div className={`glass-panel p-8 rounded-3xl w-full backdrop-blur-xl border flex flex-col gap-6 shadow-2xl ${isDark ? 'bg-white/5 border-white/10' : 'bg-white/60 border-black/5'}`}>
+           <div className="space-y-2">
+              <h2 className="text-2xl font-bold font-display">Welcome Back</h2>
+              <p className={`text-xs uppercase tracking-widest font-bold ${isDark ? 'text-zinc-500' : 'text-zinc-400'}`}>Sign in to your workspace</p>
+           </div>
+           
+           <button onClick={() => onConnect()} className="w-full btn-primary py-4 rounded-xl flex items-center justify-center gap-3 group relative overflow-hidden">
+              <div className="absolute inset-0 bg-gradient-to-r from-indigo-500 via-purple-500 to-pink-500 opacity-0 group-hover:opacity-100 transition-opacity duration-500"></div>
+              <div className="relative flex items-center gap-2">
+                <span className="font-bold text-sm uppercase tracking-widest">Connect with Google</span>
+                <ArrowRight size={16} className="group-hover:translate-x-1 transition-transform" />
+              </div>
+           </button>
+           
+           <p className="text-[10px] text-zinc-500 leading-relaxed">
+              By connecting, you agree to our Terms of Service and Privacy Policy. 
+              We use Google Authentication for secure access.
+           </p>
+        </div>
+     </div>
+  </div>
+);
 
 const App: React.FC = () => {
   // --- State ---
@@ -467,7 +629,21 @@ const App: React.FC = () => {
   const [showSettings, setShowSettings] = useState<boolean>(false);
   const [isDrawingMode, setIsDrawingMode] = useState<boolean>(false);
   const [isShareModalOpen, setIsShareModalOpen] = useState<boolean>(false);
+  const [isRemovingBg, setIsRemovingBg] = useState<boolean>(false);
+  const [showDownloadMenu, setShowDownloadMenu] = useState<boolean>(false);
+  const [theme, setTheme] = useState<Theme>(() => (localStorage.getItem('imagix_theme') as Theme) || 'dark');
   
+  // Analysis State
+  const [analysisImage, setAnalysisImage] = useState<string | null>(null);
+  const [analysisResult, setAnalysisResult] = useState<string | null>(null);
+  const [isAnalyzing, setIsAnalyzing] = useState<boolean>(false);
+  const analysisInputRef = useRef<HTMLInputElement>(null);
+
+  // Background Remover State
+  const [bgRemoverImage, setBgRemoverImage] = useState<string | null>(null);
+  const [bgRemoverResult, setBgRemoverResult] = useState<string | null>(null);
+  const bgRemoverInputRef = useRef<HTMLInputElement>(null);
+
   // User Profile State
   const [userEmail, setUserEmail] = useState<string>(() => localStorage.getItem('imagix_email') || '');
   const [userName, setUserName] = useState<string>(() => localStorage.getItem('imagix_username') || '');
@@ -502,6 +678,21 @@ const App: React.FC = () => {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const genInputRef = useRef<HTMLInputElement>(null);
 
+  const isDark = theme === 'dark';
+
+  useEffect(() => {
+    localStorage.setItem('imagix_theme', theme);
+    if (theme === 'light') {
+      document.body.classList.add('light-mode');
+    } else {
+      document.body.classList.remove('light-mode');
+    }
+  }, [theme]);
+
+  const toggleTheme = () => {
+    setTheme(prev => prev === 'dark' ? 'light' : 'dark');
+  };
+
   useEffect(() => {
     const checkKey = async () => {
       const anyWindow = window as any;
@@ -530,14 +721,17 @@ const App: React.FC = () => {
           handleEnhancePrompt();
         } else if (currentStep === AppStep.REFINE_PROMPT && !isGeneratingImage) {
           handleGenerateImage();
+        } else if (currentStep === AppStep.IMAGE_ANALYSIS && !isAnalyzing) {
+            handleAnalyzeImage();
         }
       }
     };
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [currentStep, isEnhancing, isGeneratingImage, userIdea, style, selectedAngle, enhancedPrompt]);
+  }, [currentStep, isEnhancing, isGeneratingImage, userIdea, style, selectedAngle, enhancedPrompt, isAnalyzing, analysisImage]);
 
   const handleConnect = async (mockEmail: string = "user@example.com") => {
+    if (typeof mockEmail !== 'string') mockEmail = "user@example.com";
     const firstName = mockEmail.split('@')[0].split('.')[0].split('_')[0];
     const capitalizedName = firstName.charAt(0).toUpperCase() + firstName.slice(1);
     const avatarUrl = `https://api.dicebear.com/7.x/avataaars/svg?seed=${mockEmail}&backgroundColor=b6e3f4,c0aede,d1d4f9`;
@@ -577,27 +771,18 @@ const App: React.FC = () => {
 
   const updatePromptHistory = (newText: string) => {
     setPromptHistory(prev => {
-      // Don't add duplicate adjacent entries
       if (prev.length > 0 && prev[currentPromptIndex] === newText) return prev;
       const newHistory = [...prev.slice(0, currentPromptIndex + 1), newText];
       return newHistory;
     });
-    // We can't immediately set index here because React state updates are async
-    // and we need the length of the new history.
-    // Instead we do it functionally or effectively
     setPromptHistory(prev => {
         const sliced = prev.slice(0, currentPromptIndex + 1);
         if (sliced.length > 0 && sliced[sliced.length - 1] === newText) return prev;
         return [...sliced, newText];
     });
-    setCurrentPromptIndex(prev => {
-        // This is a bit tricky due to double setState. 
-        // Let's simplify:
-        return prev + 1; // Approximate, but safe enough for this logic
-    });
+    setCurrentPromptIndex(prev => prev + 1);
   };
   
-  // Revised History Setter to be atomic
   const commitToPromptHistory = (text: string) => {
       setPromptHistory(prev => {
           const sliced = prev.slice(0, currentPromptIndex + 1);
@@ -609,9 +794,7 @@ const App: React.FC = () => {
   const handlePromptTextChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
       const newVal = e.target.value;
       setEnhancedPrompt(newVal);
-      
       if (promptTimeoutRef.current) clearTimeout(promptTimeoutRef.current);
-      
       promptTimeoutRef.current = setTimeout(() => {
           commitToPromptHistory(newVal);
       }, 800);
@@ -655,17 +838,15 @@ const App: React.FC = () => {
       const cameraString = (selectedAngle !== 'Default' || selectedLens !== 'Default') ? `${selectedAngle}, ${selectedLens}` : null;
       const refined = await generateEnhancedPrompt(ideaToUse, promptRefImages, style, cameraString, isAiMode);
       setEnhancedPrompt(refined);
-      // Reset history for new generation flow
       setPromptHistory([refined]);
       setCurrentPromptIndex(0);
-      
       setGenRefImages(promptRefImages);
       setCurrentStep(AppStep.REFINE_PROMPT);
     } catch (err: any) { setError(err.message || "Failed to refine prompt."); } finally { setIsEnhancing(false); }
   };
 
   const handleGenerateImage = async (isVariation = false) => {
-    if (isGeneratingImage) return;
+    if (isGeneratingImage || isRemovingBg) return;
     if (plan === 'free' && usageCount >= 10 && !isVariation) { setError("Free limit reached (10 images). Please upgrade in Billing."); return; }
     setError(null);
     setIsGeneratingImage(true);
@@ -676,7 +857,20 @@ const App: React.FC = () => {
         let effectiveResolution = resolution;
         if (plan === 'free') effectiveResolution = '1K';
         if (plan === 'standard' && resolution === '4K') effectiveResolution = '2K';
-        const imageUrl = await generateImage(enhancedPrompt + (isVariation ? " Give me a creative variation of this scene." : ""), { aspectRatio, resolution: effectiveResolution, useGoogleSearch: useSearch }, genRefImages, effectiveStyle, cameraString);
+        
+        // Use Flash model for Free plan, Pro model for others
+        const tier = plan === 'free' ? 'flash' : 'pro';
+        
+        const imageUrl = await generateImage(
+          enhancedPrompt + (isVariation ? " Give me a creative variation of this scene." : ""), 
+          { aspectRatio, resolution: effectiveResolution, useGoogleSearch: useSearch }, 
+          genRefImages, 
+          effectiveStyle, 
+          cameraString,
+          null,
+          tier
+        );
+        
         setUsageCount(prev => prev + 1);
         setGeneratedImage(imageUrl);
         const newItem: HistoryItem = { id: Date.now().toString(), url: imageUrl, prompt: enhancedPrompt, timestamp: Date.now() };
@@ -688,6 +882,57 @@ const App: React.FC = () => {
     } finally { setIsGeneratingImage(false); }
   };
 
+  const handleAnalyzeImage = async () => {
+      if (isAnalyzing) return;
+      if (!analysisImage) { setError("Please upload an image to analyze."); return; }
+      
+      setError(null);
+      setIsAnalyzing(true);
+      setAnalysisResult(null);
+
+      try {
+          const result = await analyzeImage(analysisImage, "Transcribe all text visible in this image exactly as it appears. Output only the text content. If there is no text, say 'No text detected'.");
+          setAnalysisResult(result);
+      } catch (err: any) {
+           setError(err.message || "Analysis failed.");
+      } finally {
+          setIsAnalyzing(false);
+      }
+  };
+
+  const handleStandaloneBgRemoval = async () => {
+      if (!bgRemoverImage || isRemovingBg) return;
+      if (plan === 'free' && usageCount >= 10) { setError("Free limit reached. Upgrade to use background remover."); return; }
+      
+      setError(null);
+      setIsRemovingBg(true);
+      setBgRemoverResult(null);
+
+      try {
+          // Use Flash model for Free plan, Pro model for others
+          const tier = plan === 'free' ? 'flash' : 'pro';
+
+          // Use the existing generateImage logic but strictly for BG removal
+          const imageUrl = await generateImage(
+              "Isolate the main subject on a pure flat solid white background (hex #FFFFFF). Remove all background elements completely. Do NOT cast shadows on the floor. The background must be pure white.",
+              { aspectRatio: "1:1", resolution: "1K", useGoogleSearch: false }, 
+              [bgRemoverImage],
+              "Studio",
+              null,
+              null,
+              tier
+          );
+          
+          const transparentImageUrl = await removeWhiteBackground(imageUrl);
+          setBgRemoverResult(transparentImageUrl);
+          setUsageCount(prev => prev + 1);
+      } catch (err: any) {
+          setError(err.message || "Background removal failed");
+      } finally {
+          setIsRemovingBg(false);
+      }
+  };
+
   const handleMagicEdit = async (mask: string, editPrompt: string) => {
      if (isGeneratingImage) return;
      if (plan === 'free' && usageCount >= 10) { setError("Free limit reached. Upgrade to edit."); return; }
@@ -695,34 +940,99 @@ const App: React.FC = () => {
 
      setError(null);
      setIsGeneratingImage(true);
-     // Close modal early or keep it open with loader? Better to show loader on main screen.
      setIsDrawingMode(false); 
 
      try {
+         const tier = plan === 'free' ? 'flash' : 'pro';
          const imageUrl = await generateImage(
             editPrompt,
             { aspectRatio, resolution, useGoogleSearch: false },
-            [generatedImage], // Pass original image as reference
+            [generatedImage],
             style || "Photorealistic",
             null,
-            mask // Pass the mask
+            mask,
+            tier
          );
-         
          setUsageCount(prev => prev + 1);
          setGeneratedImage(imageUrl);
-         // Add new image to history
          const newItem: HistoryItem = { id: Date.now().toString(), url: imageUrl, prompt: `Edit: ${editPrompt}`, timestamp: Date.now() };
          setHistory(prev => [newItem, ...prev]);
          setCurrentStep(AppStep.VIEW_RESULT);
      } catch (err: any) {
          setError(err.message || "Magic Edit failed");
-         setIsDrawingMode(true); // Re-open if failed so they don't lose the mask
+         setIsDrawingMode(true);
      } finally {
          setIsGeneratingImage(false);
      }
   };
+
+  const handleRemoveBackground = async () => {
+    if (isGeneratingImage || isRemovingBg || !generatedImage) return;
+    if (plan === 'free' && usageCount >= 10) { setError("Free limit reached. Upgrade to use tools."); return; }
+    
+    setError(null);
+    setIsRemovingBg(true);
+
+    try {
+        const tier = plan === 'free' ? 'flash' : 'pro';
+        const imageUrl = await generateImage(
+            "Isolate the main subject on a pure flat solid white background (hex #FFFFFF). Remove all background elements completely. Do NOT cast shadows on the floor. The background must be pure white.",
+            { aspectRatio, resolution, useGoogleSearch: false },
+            [generatedImage],
+            "Studio",
+            null,
+            null,
+            tier
+        );
+        
+        // Post-process the image to make white pixels transparent
+        const transparentImageUrl = await removeWhiteBackground(imageUrl);
+
+        setUsageCount(prev => prev + 1);
+        setGeneratedImage(transparentImageUrl);
+        const newItem: HistoryItem = { 
+            id: Date.now().toString(), 
+            url: transparentImageUrl, 
+            prompt: "Background Removal: " + enhancedPrompt, 
+            timestamp: Date.now() 
+        };
+        setHistory(prev => [newItem, ...prev]);
+    } catch (err: any) {
+        setError(err.message || "Background removal failed");
+    } finally {
+        setIsRemovingBg(false);
+    }
+  };
+
+  const handleDownload = (format: 'png' | 'jpeg' | 'webp', source?: string) => {
+    const targetImage = source || generatedImage;
+    if (!targetImage) return;
+    
+    const img = new Image();
+    img.crossOrigin = "Anonymous";
+    img.onload = () => {
+      const canvas = document.createElement('canvas');
+      canvas.width = img.width;
+      canvas.height = img.height;
+      const ctx = canvas.getContext('2d');
+      if (!ctx) return;
+
+      if (format === 'jpeg') {
+         // ctx.fillStyle = '#FFFFFF';
+         // ctx.fillRect(0, 0, canvas.width, canvas.height);
+      }
+      
+      ctx.drawImage(img, 0, 0);
+      
+      const link = document.createElement('a');
+      link.href = canvas.toDataURL(`image/${format}`, 0.92);
+      link.download = `imagix-${Date.now()}.${format === 'jpeg' ? 'jpg' : format}`;
+      link.click();
+      setShowDownloadMenu(false);
+    };
+    img.src = targetImage;
+  };
   
-  // Navigation for Generated Images History
   const getCurrentHistoryIndex = () => {
       if (!generatedImage) return -1;
       return history.findIndex(item => item.url === generatedImage);
@@ -731,7 +1041,7 @@ const App: React.FC = () => {
   const handleUndoGeneration = () => {
       const currentIndex = getCurrentHistoryIndex();
       if (currentIndex !== -1 && currentIndex < history.length - 1) {
-          const prevItem = history[currentIndex + 1]; // History is newest first
+          const prevItem = history[currentIndex + 1];
           setGeneratedImage(prevItem.url);
           setEnhancedPrompt(prevItem.prompt);
       }
@@ -740,7 +1050,7 @@ const App: React.FC = () => {
   const handleRedoGeneration = () => {
       const currentIndex = getCurrentHistoryIndex();
       if (currentIndex > 0) {
-          const nextItem = history[currentIndex - 1]; // History is newest first
+          const nextItem = history[currentIndex - 1];
           setGeneratedImage(nextItem.url);
           setEnhancedPrompt(nextItem.prompt);
       }
@@ -749,8 +1059,6 @@ const App: React.FC = () => {
   const handleDeleteHistoryItem = (e: React.MouseEvent, id: string) => {
     e.stopPropagation();
     setHistory(prev => prev.filter(item => item.id !== id));
-    // If we're currently viewing the deleted item, just leave it as is to not disrupt the view,
-    // or we could navigate back. For now, leaving the view is safer UX.
   };
 
   const handleDownloadHistoryItem = (e: React.MouseEvent, url: string, id: string) => {
@@ -770,18 +1078,15 @@ const App: React.FC = () => {
 
     if (navigator.share) {
       try {
-        // Convert base64 to File for native sharing
         const res = await fetch(generatedImage);
         const blob = await res.blob();
         const file = new File([blob], 'imagix-vision.png', { type: 'image/png' });
-        
         await navigator.share({
           files: [file],
           title: 'Imagix Studio Creation',
           text: `Visualized using Imagix Studio: ${enhancedPrompt.slice(0, 100)}...`,
         });
       } catch (err) {
-        console.error("Native share failed:", err);
         setIsShareModalOpen(true);
       }
     } else {
@@ -800,6 +1105,8 @@ const App: React.FC = () => {
     setSelectedAngle("Default");
     setSelectedLens("Default");
     setIsShareModalOpen(false);
+    setBgRemoverImage(null);
+    setBgRemoverResult(null);
   };
 
   const handleUpdatePlan = (newPlan: PlanType) => {
@@ -808,15 +1115,23 @@ const App: React.FC = () => {
     setCurrentStep(AppStep.INPUT_IDEA);
   };
 
-  if (!apiKeyReady || !userName) return <LoginScreen onConnect={handleConnect} />;
+  if (!apiKeyReady || !userName) return <LoginScreen onConnect={handleConnect} isDark={isDark} />;
 
   const daysLeft = calculateDaysLeft();
 
   return (
-    <div className="min-h-screen relative font-sans text-brand-text flex flex-col selection:bg-white selection:text-black">
-      <StarField />
+    <div className={`min-h-screen relative font-sans flex flex-col selection:bg-purple-500 selection:text-white ${isDark ? 'text-brand-text' : 'text-zinc-800'}`}>
+      <StarField isDark={isDark} />
       
-      {isGeneratingImage && <SilverProgressBar />}
+      {isGeneratingImage && <SilverProgressBar isDark={isDark} />}
+      
+      {error && (
+        <div className="fixed bottom-8 left-1/2 -translate-x-1/2 z-[100] bg-red-500/90 text-white px-6 py-3 rounded-xl shadow-2xl backdrop-blur-md flex items-center gap-4 animate-slide-up border border-red-400/30">
+          <XCircle size={20} />
+          <span className="text-sm font-bold">{error}</span>
+          <button onClick={() => setError(null)} className="hover:bg-white/20 p-1 rounded-full transition-colors"><X size={16} /></button>
+        </div>
+      )}
 
       {isDrawingMode && generatedImage && (
          <DrawingCanvas 
@@ -832,73 +1147,93 @@ const App: React.FC = () => {
       )}
 
       <div className="fixed top-0 left-0 right-0 z-50 flex justify-center px-4 pt-6">
-        <nav className="glass-panel rounded-full px-6 py-3 flex items-center gap-8 shadow-2xl max-w-4xl w-full justify-between backdrop-blur-3xl animate-fade-in relative">
-           <div className="flex items-center gap-2 pl-2" onClick={handleReset}><Logo /></div>
-           <div className="hidden md:flex items-center gap-6 text-[10px] font-bold tracking-widest text-brand-textDim uppercase">
-              <button onClick={() => setCurrentStep(AppStep.INPUT_IDEA)} className={`transition-colors hover:text-white ${currentStep === AppStep.INPUT_IDEA ? 'text-white' : ''}`}>Writing</button>
-              <button onClick={() => { if (generatedImage) setCurrentStep(AppStep.VIEW_RESULT); else setCurrentStep(AppStep.REFINE_PROMPT); }} className={`transition-colors hover:text-white ${currentStep === AppStep.VIEW_RESULT || currentStep === AppStep.REFINE_PROMPT ? 'text-white' : ''}`}>Creation</button>
-              <button onClick={() => setCurrentStep(AppStep.BILLING)} className={`transition-colors hover:text-white ${currentStep === AppStep.BILLING ? 'text-white' : ''}`}>Billing</button>
+        <nav className={`glass-panel rounded-full px-6 py-3 flex items-center gap-8 shadow-2xl max-w-4xl w-full justify-between backdrop-blur-3xl animate-fade-in relative transition-colors ${!isDark ? 'bg-white/60 border-black/5 shadow-[0_4px_20px_rgba(0,0,0,0.05)]' : ''}`}>
+           <div className="flex items-center gap-2 pl-2" onClick={handleReset}><Logo isDark={isDark} /></div>
+           <div className={`hidden md:flex items-center gap-6 text-[10px] font-bold tracking-widest uppercase ${isDark ? 'text-brand-textDim' : 'text-zinc-400'}`}>
+              <button onClick={() => setCurrentStep(AppStep.INPUT_IDEA)} className={`transition-colors hover:text-current ${currentStep === AppStep.INPUT_IDEA ? (isDark ? 'text-white' : 'text-zinc-900') : ''}`}>Writing</button>
+              <button onClick={() => { if (generatedImage) setCurrentStep(AppStep.VIEW_RESULT); else setCurrentStep(AppStep.REFINE_PROMPT); }} className={`transition-colors hover:text-current ${currentStep === AppStep.VIEW_RESULT || currentStep === AppStep.REFINE_PROMPT ? (isDark ? 'text-white' : 'text-zinc-900') : ''}`}>Creation</button>
+              <button onClick={() => setCurrentStep(AppStep.BG_REMOVER)} className={`transition-colors hover:text-current ${currentStep === AppStep.BG_REMOVER ? (isDark ? 'text-white' : 'text-zinc-900') : ''}`}>BG Remover</button>
+              <button onClick={() => setCurrentStep(AppStep.IMAGE_ANALYSIS)} className={`transition-colors hover:text-current ${currentStep === AppStep.IMAGE_ANALYSIS ? (isDark ? 'text-white' : 'text-zinc-900') : ''}`}>Text Extractor</button>
+              <button onClick={() => setCurrentStep(AppStep.BILLING)} className={`transition-colors hover:text-current ${currentStep === AppStep.BILLING ? (isDark ? 'text-white' : 'text-zinc-900') : ''}`}>Billing</button>
            </div>
            <div className="flex items-center gap-4">
-              <button onClick={() => setShowSettings(!showSettings)} className="flex items-center gap-3 pl-1 pr-4 py-1 rounded-full bg-white/5 border border-white/10 hover:bg-white/10 transition-all group overflow-hidden">
-                 <div className="w-8 h-8 rounded-full border border-white/20 overflow-hidden bg-zinc-800">
+              <button onClick={() => setShowSettings(!showSettings)} className={`flex items-center gap-3 pl-1 pr-4 py-1 rounded-full transition-all group overflow-hidden ${isDark ? 'bg-white/5 border border-white/10 hover:bg-white/10' : 'bg-white border border-black/5 hover:bg-zinc-50'}`}>
+                 <div className="w-8 h-8 rounded-full overflow-hidden border border-white/10">
                     <img src={userAvatar} className="w-full h-full object-cover" alt="Profile" />
                  </div>
                  <div className="flex flex-col items-start leading-none">
-                    <span className="text-[10px] font-bold text-white mb-1">{userName}</span>
+                    <span className={`text-[10px] font-bold mb-1 ${isDark ? 'text-white' : 'text-zinc-900'}`}>{userName}</span>
                     <span className={`text-[8px] font-bold uppercase tracking-wider ${plan === 'pro' ? 'text-purple-400' : plan === 'standard' ? 'text-blue-400' : 'text-emerald-400'}`}>{plan}</span>
                  </div>
-                 <ChevronDown size={12} className={`text-white/30 group-hover:text-white transition-transform ${showSettings ? 'rotate-180' : ''}`} />
+                 <ChevronDown size={12} className={`transition-transform ${isDark ? 'text-white/30 group-hover:text-white' : 'text-zinc-400 group-hover:text-zinc-600'} ${showSettings ? 'rotate-180' : ''}`} />
               </button>
            </div>
 
            {showSettings && (
-             <div className="absolute top-[calc(100%+12px)] right-6 w-80 glass-panel rounded-3xl p-6 shadow-3xl animate-slide-up border border-white/20 z-[200]">
+             <div className={`absolute top-[calc(100%+12px)] right-6 w-80 glass-panel rounded-3xl p-6 shadow-3xl animate-slide-up z-[200] ${isDark ? 'border-white/20' : 'bg-white/80 border-black/5 shadow-2xl'}`}>
                 <div className="flex flex-col items-center mb-6">
                    <div className="w-20 h-20 rounded-full border-2 border-white/20 p-1 mb-3">
                       <img src={userAvatar} className="w-full h-full rounded-full object-cover" alt="Profile" />
                    </div>
-                   <h3 className="font-display font-bold text-white text-lg leading-tight">{userName}</h3>
+                   <h3 className={`font-display font-bold text-lg leading-tight ${isDark ? 'text-white' : 'text-zinc-900'}`}>{userName}</h3>
                    <p className="text-zinc-500 text-xs font-mono">{userEmail}</p>
                 </div>
                 
                 <div className="space-y-2 mb-6">
-                   <div className="flex items-center justify-between p-3 rounded-2xl bg-white/5 border border-white/5">
+                   <div className={`flex items-center justify-between p-3 rounded-2xl ${isDark ? 'bg-white/5 border border-white/5' : 'bg-white border border-black/5'}`}>
                       <div className="flex items-center gap-3">
-                         <div className="p-2 rounded-lg bg-yellow-500/20 text-yellow-400">
+                         <div className="p-2 rounded-lg bg-yellow-500/20 text-yellow-500">
                             <Coins size={14} />
                          </div>
-                         <div className="flex flex-col">
-                            <span className="text-[10px] font-bold text-zinc-500 uppercase tracking-widest">Credits Remaining</span>
-                            <span className="text-xs font-bold text-white">
-                               {plan === 'free' ? `${Math.max(0, 10 - usageCount)} / 10 Remaining` : 'Unlimited Credits'}
+                         <div className="flex flex-col w-full">
+                            <div className="flex justify-between items-center mb-1">
+                               <span className="text-[10px] font-bold text-zinc-500 uppercase tracking-widest">Credits</span>
+                               {plan !== 'free' && daysLeft !== null && (
+                                   <span className="text-[9px] font-bold text-orange-400 bg-orange-500/10 px-1.5 py-0.5 rounded uppercase tracking-wider">
+                                      {daysLeft} Days Left
+                                   </span>
+                               )}
+                            </div>
+                            <span className={`text-xs font-bold ${isDark ? 'text-white' : 'text-zinc-900'}`}>
+                               {plan === 'free' ? `${Math.max(0, 10 - usageCount)} / 10 Lifetime` : 'Unlimited'}
                             </span>
                          </div>
                       </div>
                    </div>
 
-                   <div className="flex items-center justify-between p-3 rounded-2xl bg-white/5 border border-white/5">
+                   <div className={`flex items-center justify-between p-3 rounded-2xl ${isDark ? 'bg-white/5 border border-white/5' : 'bg-white border border-black/5'}`}>
                       <div className="flex items-center gap-3">
-                         <div className={`p-2 rounded-lg ${plan === 'pro' ? 'bg-purple-500/20 text-purple-400' : plan === 'standard' ? 'bg-blue-500/20 text-blue-400' : 'bg-emerald-500/20 text-emerald-400'}`}>
+                         <div className={`p-2 rounded-lg ${plan === 'pro' ? 'bg-purple-500/20 text-purple-400' : plan === 'standard' ? 'bg-blue-500/20 text-blue-400' : 'bg-emerald-500/20 text-emerald-500'}`}>
                             <ShieldCheck size={14} />
                          </div>
                          <div className="flex flex-col">
                             <span className="text-[10px] font-bold text-zinc-500 uppercase tracking-widest">Plan & Status</span>
                             <div className="flex items-center gap-2">
-                               <span className="text-xs font-bold text-white capitalize">{plan}</span>
-                               {plan !== 'free' && daysLeft !== null && (
-                                  <span className="text-[10px] font-bold text-orange-400 bg-orange-500/10 px-2 py-0.5 rounded-md">
-                                     {daysLeft}d left
-                                  </span>
-                               )}
+                               <span className={`text-xs font-bold capitalize ${isDark ? 'text-white' : 'text-zinc-900'}`}>{plan}</span>
                             </div>
                          </div>
                       </div>
                    </div>
+
+                   {/* Theme Toggle */}
+                   <button onClick={toggleTheme} className={`w-full flex items-center justify-between p-3 rounded-2xl transition-all ${isDark ? 'bg-white/5 border border-white/5 hover:bg-white/10' : 'bg-white border border-black/5 hover:bg-zinc-50'}`}>
+                      <div className="flex items-center gap-3">
+                         <div className={`p-2 rounded-lg ${isDark ? 'bg-zinc-800 text-zinc-400' : 'bg-orange-100 text-orange-500'}`}>
+                            {isDark ? <Moon size={14} /> : <Sun size={14} />}
+                         </div>
+                         <div className="flex flex-col items-start">
+                            <span className="text-[10px] font-bold text-zinc-500 uppercase tracking-widest">Theme Mode</span>
+                            <span className={`text-xs font-bold capitalize ${isDark ? 'text-white' : 'text-zinc-900'}`}>{isDark ? 'Black & Silver' : 'Light Studio'}</span>
+                         </div>
+                      </div>
+                      <div className={`w-8 h-4 rounded-full relative transition-colors ${isDark ? 'bg-zinc-700' : 'bg-zinc-300'}`}>
+                          <div className={`absolute top-0.5 w-3 h-3 rounded-full bg-white shadow-sm transition-all ${isDark ? 'left-0.5' : 'left-[calc(100%-14px)]'}`}></div>
+                      </div>
+                   </button>
                 </div>
 
                 <div className="flex flex-col gap-2">
-                   <button onClick={() => { setCurrentStep(AppStep.BILLING); setShowSettings(false); }} className="w-full py-3 rounded-xl bg-white text-black font-bold text-[10px] uppercase tracking-widest hover:brightness-110 transition-all">Upgrade Workspace</button>
+                   <button onClick={() => { setCurrentStep(AppStep.BILLING); setShowSettings(false); }} className={`w-full py-3 rounded-xl font-bold text-[10px] uppercase tracking-widest hover:brightness-110 transition-all ${isDark ? 'bg-white text-black' : 'bg-black text-white'}`}>Upgrade Workspace</button>
                    <button onClick={handleLogout} className="w-full py-3 rounded-xl bg-red-500/10 text-red-400 border border-red-500/20 font-bold text-[10px] uppercase tracking-widest flex items-center justify-center gap-2 hover:bg-red-500/20 transition-all"><LogOut size={12} /> Sign Out</button>
                 </div>
              </div>
@@ -909,20 +1244,20 @@ const App: React.FC = () => {
       <main className="flex-1 w-full pt-32 pb-12 px-4 md:px-8 max-w-7xl mx-auto flex flex-col items-center">
         {currentStep === AppStep.INPUT_IDEA && (
           <div className="w-full flex flex-col items-center text-center animate-slide-up max-w-4xl">
-             <div className="mb-6 inline-flex items-center gap-2 px-4 py-1.5 rounded-full border border-white/10 bg-white/5 backdrop-blur-md">
-                <Sparkles size={12} className="text-white" />
-                <span className="text-xs font-bold tracking-widest text-white/80 uppercase">Powered by Addot</span>
+             <div className={`mb-6 inline-flex items-center gap-2 px-4 py-1.5 rounded-full backdrop-blur-md ${isDark ? 'border border-white/10 bg-white/5' : 'border border-black/5 bg-white/60'}`}>
+                <Sparkles size={12} className={isDark ? "text-white" : "text-black"} />
+                <span className={`text-xs font-bold tracking-widest uppercase ${isDark ? 'text-white/80' : 'text-zinc-600'}`}>Powered by Addot</span>
              </div>
              <h1 className="text-5xl md:text-8xl font-sans font-black tracking-tighter mb-8 leading-[0.9] text-glow italic">
-                <span className="inline-block animate-text-reveal">IMAGINE</span> <br/>
+                <span className={`inline-block animate-text-reveal ${isDark ? 'text-white' : 'text-zinc-900'}`}>IMAGINE</span> <br/>
                 <span className="text-gradient inline-block animate-text-reveal delay-200">WITHOUT LIMITS.</span>
              </h1>
              <div className="w-full overflow-x-auto custom-scrollbar pb-6 mb-4 px-2">
                 <div className="flex gap-3 min-w-max px-2">
                    {STYLE_PRESETS.map(s => (
-                      <button key={s.id} disabled={isAiMode} onClick={() => setStyle(s.id === style ? null : s.id)} className={`flex flex-col items-center gap-2 px-5 py-4 rounded-2xl border transition-all duration-300 min-w-[100px] group ${isAiMode ? 'opacity-30 cursor-not-allowed grayscale' : ''} ${style === s.id && !isAiMode ? `${s.bg} ${s.border} ring-1 ring-white/20` : 'bg-white/5 border-white/10 hover:bg-white/10 hover:border-white/20'}`}>
-                         <div className={`${style === s.id && !isAiMode ? s.color : 'text-zinc-500 group-hover:text-zinc-300'} transition-colors`}>{s.icon}</div>
-                         <span className={`text-[10px] font-bold uppercase tracking-widest ${style === s.id && !isAiMode ? 'text-white' : 'text-zinc-500'}`}>{s.name}</span>
+                      <button key={s.id} disabled={isAiMode} onClick={() => setStyle(s.id === style ? null : s.id)} className={`flex flex-col items-center gap-2 px-5 py-4 rounded-2xl border transition-all duration-300 min-w-[100px] group ${isAiMode ? 'opacity-30 cursor-not-allowed grayscale' : ''} ${style === s.id && !isAiMode ? `${s.bg} ${s.border} ring-1 ring-white/20` : (isDark ? 'bg-white/5 border-white/10 hover:bg-white/10 hover:border-white/20' : 'bg-white border-black/5 hover:bg-zinc-50 hover:border-black/10')}`}>
+                         <div className={`${style === s.id && !isAiMode ? s.color : (isDark ? 'text-zinc-500 group-hover:text-zinc-300' : 'text-zinc-400 group-hover:text-zinc-600')} transition-colors`}>{s.icon}</div>
+                         <span className={`text-[10px] font-bold uppercase tracking-widest ${style === s.id && !isAiMode ? (isDark ? 'text-white' : 'text-black') : 'text-zinc-500'}`}>{s.name}</span>
                       </button>
                    ))}
                 </div>
@@ -930,23 +1265,23 @@ const App: React.FC = () => {
              </div>
              <div className="w-full relative group mt-4">
                 <div className="absolute -inset-1 bg-gradient-to-r from-purple-500/20 via-white/10 to-blue-500/20 rounded-3xl opacity-0 group-hover:opacity-100 blur-xl transition duration-700"></div>
-                <div className="relative glass-panel rounded-3xl p-4 flex flex-col gap-4 backdrop-blur-3xl shadow-2xl border-white/20">
-                   <div className="relative bg-black/40 rounded-2xl border border-white/5 overflow-hidden">
-                      <textarea value={userIdea} onChange={(e) => setUserIdea(e.target.value)} placeholder="Describe your visual concept in any language" className="w-full h-32 bg-transparent p-6 text-xl text-white placeholder:text-zinc-600 focus:outline-none resize-none font-sans leading-relaxed" />
+                <div className={`relative glass-panel rounded-3xl p-4 flex flex-col gap-4 backdrop-blur-3xl shadow-2xl ${isDark ? 'border-white/20' : 'border-black/5 bg-white/50'}`}>
+                   <div className={`relative rounded-2xl border overflow-hidden transition-colors ${isDark ? 'bg-black/40 border-white/5' : 'bg-white border-black/5'}`}>
+                      <textarea value={userIdea} onChange={(e) => setUserIdea(e.target.value)} placeholder="Describe your visual concept in any language" className={`w-full h-32 bg-transparent p-6 text-xl placeholder:text-zinc-500 focus:outline-none resize-none font-sans leading-relaxed ${isDark ? 'text-white' : 'text-zinc-900'}`} />
                       <div className="absolute bottom-4 left-6 flex items-center gap-4">
-                         <button onClick={() => fileInputRef.current?.click()} className="flex items-center gap-2 text-[10px] font-bold text-zinc-500 hover:text-white transition-colors uppercase tracking-widest"><Paperclip size={14} /> Attach Reference</button>
+                         <button onClick={() => fileInputRef.current?.click()} className={`flex items-center gap-2 text-[10px] font-bold hover:text-current transition-colors uppercase tracking-widest ${isDark ? 'text-zinc-500 hover:text-white' : 'text-zinc-400 hover:text-black'}`}><Paperclip size={14} /> Attach Reference</button>
                          <input type="file" ref={fileInputRef} onChange={(e) => { const files = Array.from(e.target.files || []); files.forEach((f: File) => { const r = new FileReader(); r.onload = () => setPromptRefImages(prev => [...prev, r.result as string].slice(0, 5)); r.readAsDataURL(f); }); }} multiple hidden accept="image/*" />
-                         <div className="flex gap-1">{promptRefImages.map((img, i) => (<div key={i} className="w-6 h-6 rounded border border-white/20 overflow-hidden relative group/img"><img src={img} className="w-full h-full object-cover" /><button onClick={() => setPromptRefImages(p => p.filter((_, idx) => idx !== i))} className="absolute inset-0 bg-black/60 opacity-0 group-hover/img:opacity-100 flex items-center justify-center"><X size={8}/></button></div>))}</div>
+                         <div className="flex gap-1">{promptRefImages.map((img, i) => (<div key={i} className={`w-6 h-6 rounded border overflow-hidden relative group/img ${isDark ? 'border-white/20' : 'border-black/10'}`}><img src={img} className="w-full h-full object-cover" /><button onClick={() => setPromptRefImages(p => p.filter((_, idx) => idx !== i))} className="absolute inset-0 bg-black/60 opacity-0 group-hover/img:opacity-100 flex items-center justify-center"><X size={8}/></button></div>))}</div>
                       </div>
                       <div className="absolute bottom-4 right-6 pointer-events-none opacity-20">
-                         <span className="text-[8px] font-bold uppercase tracking-widest text-white">Press Ctrl+Enter to write</span>
+                         <span className={`text-[8px] font-bold uppercase tracking-widest ${isDark ? 'text-white' : 'text-black'}`}>Press Ctrl+Enter to write</span>
                       </div>
                    </div>
                    <div className="flex flex-wrap gap-2 px-2 py-1">
-                      {ANGLE_PRESETS.map((a) => (<button key={a.id} disabled={isAiMode} onClick={() => setSelectedAngle(selectedAngle === a.id ? "Default" : a.id)} className={`flex items-center gap-2 px-3 py-2 rounded-lg text-[10px] font-bold uppercase tracking-widest border transition-all ${isAiMode ? 'opacity-30 cursor-not-allowed' : ''} ${selectedAngle === a.id && !isAiMode ? 'bg-white text-black border-white' : 'bg-white/5 border-white/5 text-zinc-500 hover:text-white hover:bg-white/10'}`}>{a.icon}{a.name}</button>))}
+                      {ANGLE_PRESETS.map((a) => (<button key={a.id} disabled={isAiMode} onClick={() => setSelectedAngle(selectedAngle === a.id ? "Default" : a.id)} className={`flex items-center gap-2 px-3 py-2 rounded-lg text-[10px] font-bold uppercase tracking-widest border transition-all ${isAiMode ? 'opacity-30 cursor-not-allowed' : ''} ${selectedAngle === a.id && !isAiMode ? (isDark ? 'bg-white text-black border-white' : 'bg-black text-white border-black') : (isDark ? 'bg-white/5 border-white/5 text-zinc-500 hover:text-white hover:bg-white/10' : 'bg-white border-black/5 text-zinc-400 hover:text-black hover:bg-zinc-50')}`}>{a.icon}{a.name}</button>))}
                    </div>
-                   <div className="flex items-center justify-between px-2 pt-2 border-t border-white/5">
-                      <div className="flex gap-4"><button onClick={handleToggleAiMode} className={`flex items-center gap-2 px-4 py-2 rounded-xl border transition-all ${isAiMode ? 'bg-white text-black border-white' : 'bg-white/5 text-white/40 border-white/10'}`}><Cpu size={14} /><span className="text-[10px] font-bold uppercase tracking-widest">AI Studio</span></button></div>
+                   <div className={`flex items-center justify-between px-2 pt-2 border-t ${isDark ? 'border-white/5' : 'border-black/5'}`}>
+                      <div className="flex gap-4"><button onClick={handleToggleAiMode} className={`flex items-center gap-2 px-4 py-2 rounded-xl border transition-all ${isAiMode ? (isDark ? 'bg-white text-black border-white' : 'bg-black text-white border-black') : (isDark ? 'bg-white/5 text-white/40 border-white/10' : 'bg-white text-zinc-400 border-black/5')}`}><Sparkles size={14} /><span className="text-[10px] font-bold uppercase tracking-widest">Imagix AI</span></button></div>
                       <button onClick={() => handleEnhancePrompt()} disabled={isEnhancing} className="btn-primary py-4 px-10 flex items-center gap-3 text-sm">{isEnhancing ? <Loader2 className="animate-spin" size={18} /> : <>Write Prompt <ArrowRight size={18} /></>}</button>
                    </div>
                 </div>
@@ -956,34 +1291,44 @@ const App: React.FC = () => {
 
         {(currentStep === AppStep.REFINE_PROMPT || currentStep === AppStep.VIEW_RESULT) && (
           <div className="w-full grid grid-cols-1 lg:grid-cols-12 gap-8 animate-slide-up h-[calc(100vh-200px)] min-h-[600px]">
-             <div className="lg:col-span-3 glass-panel rounded-3xl p-6 flex flex-col gap-6 backdrop-blur-xl border-white/10">
-                <div className="flex items-center justify-between pb-4 border-b border-white/5"><span className="text-[10px] font-bold text-white uppercase tracking-widest">Library</span><History size={14} className="text-white/30" /></div>
-                <div className="flex-1 overflow-y-auto space-y-4 custom-scrollbar">
-                   {history.map(item => (
-                      <div key={item.id} onClick={() => { setGeneratedImage(item.url); setEnhancedPrompt(item.prompt); setCurrentStep(AppStep.VIEW_RESULT); }} className="group relative cursor-pointer mb-4">
-                         <div className="aspect-video rounded-xl overflow-hidden border border-white/10 group-hover:border-white/40 transition-all relative">
-                            <img src={item.url} className="w-full h-full object-cover opacity-60 group-hover:opacity-100 transition-opacity" />
-                            <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center gap-2">
-                               <button onClick={(e) => handleDownloadHistoryItem(e, item.url, item.id)} className="p-2 rounded-full bg-white/10 hover:bg-white/20 text-white backdrop-blur-md transition-colors" title="Download">
-                                  <Download size={14} />
-                               </button>
-                               <button onClick={(e) => handleDeleteHistoryItem(e, item.id)} className="p-2 rounded-full bg-red-500/20 hover:bg-red-500/40 text-red-400 backdrop-blur-md transition-colors" title="Delete">
-                                  <Trash2 size={14} />
-                               </button>
-                            </div>
-                         </div>
-                         <p className="text-[10px] text-zinc-500 truncate group-hover:text-white transition-colors px-1">{item.prompt}</p>
+             <div className={`lg:col-span-3 glass-panel rounded-3xl p-6 flex flex-col gap-6 backdrop-blur-xl ${isDark ? 'border-white/10' : 'border-black/5'}`}>
+                <div className={`flex items-center justify-between pb-4 border-b ${isDark ? 'border-white/5' : 'border-black/5'}`}><span className={`text-[10px] font-bold uppercase tracking-widest ${isDark ? 'text-white' : 'text-zinc-900'}`}>Library</span><History size={14} className={isDark ? "text-white/30" : "text-zinc-400"} /></div>
+                
+                <div className="flex-1 overflow-y-auto custom-scrollbar pr-1">
+                   <div className="grid grid-cols-2 gap-3">
+                     {history.map(item => (
+                        <div key={item.id} onClick={() => { setGeneratedImage(item.url); setEnhancedPrompt(item.prompt); setCurrentStep(AppStep.VIEW_RESULT); }} className={`group relative cursor-pointer aspect-square rounded-xl overflow-hidden border transition-all ${isDark ? 'border-white/10 hover:border-white/30' : 'border-black/5 hover:border-black/20'}`}>
+                           <img src={item.url} className="w-full h-full object-cover opacity-80 group-hover:opacity-100 transition-opacity" alt="History" />
+                           <div className="absolute inset-0 bg-black/60 opacity-0 group-hover:opacity-100 transition-all flex flex-col items-center justify-center gap-2 backdrop-blur-sm">
+                              <div className="flex gap-2">
+                                <button onClick={(e) => handleDownloadHistoryItem(e, item.url, item.id)} className="p-1.5 rounded-lg bg-white/10 hover:bg-white/20 text-white transition-colors" title="Download">
+                                   <Download size={12} />
+                                 </button>
+                                <button onClick={(e) => handleDeleteHistoryItem(e, item.id)} className="p-1.5 rounded-lg bg-red-500/20 hover:bg-red-500/40 text-red-400 transition-colors" title="Delete">
+                                   <Trash2 size={12} />
+                                </button>
+                              </div>
+                              <span className="text-[8px] text-white/60 px-2 text-center truncate w-full">{item.prompt}</span>
+                           </div>
+                        </div>
+                     ))}
+                   </div>
+                   {history.length === 0 && (
+                      <div className="h-full flex flex-col items-center justify-center text-zinc-500 gap-2 opacity-40">
+                         <ImageIcon size={24} />
+                         <span className="text-[10px] font-bold uppercase tracking-widest">Empty</span>
                       </div>
-                   ))}
+                   )}
                 </div>
-                <button onClick={handleReset} className="w-full py-4 rounded-2xl bg-white/5 border border-white/10 hover:bg-white/10 text-[10px] font-bold uppercase tracking-widest text-white transition-all">New Concept</button>
+
+                <button onClick={handleReset} className={`w-full py-4 rounded-2xl border text-[10px] font-bold uppercase tracking-widest transition-all ${isDark ? 'bg-white/5 border-white/10 hover:bg-white/10 text-white' : 'bg-white border-black/5 hover:bg-zinc-50 text-zinc-900'}`}>New Concept</button>
              </div>
              <div className="lg:col-span-9 flex flex-col h-full">
                 {currentStep === AppStep.REFINE_PROMPT && (
-                  <div className="glass-panel rounded-3xl p-8 flex flex-col h-full backdrop-blur-2xl border-white/20 relative overflow-hidden">
+                  <div className={`glass-panel rounded-3xl p-8 flex flex-col h-full backdrop-blur-2xl relative overflow-hidden ${isDark ? 'border-white/20' : 'border-black/5 bg-white/60'}`}>
                      <div className="flex items-center justify-between mb-8">
-                        <div><h2 className="text-3xl font-display font-bold text-white">Art Direction</h2><p className="text-[10px] font-bold text-zinc-500 uppercase tracking-[0.3em]">Refine parameters for final synthesis</p></div>
-                        <div className="flex gap-3"><button onClick={() => setUseSearch(!useSearch)} className={`flex items-center gap-2 px-4 py-2 rounded-xl border transition-all ${useSearch ? 'bg-blue-500/20 border-blue-500 text-blue-400' : 'bg-white/5 border-white/10 text-white/30'}`} title="Enable Google Search Grounding (Pro Mode)"><Globe size={14} /><span className="text-[10px] font-bold uppercase tracking-widest">Web Research</span></button></div>
+                        <div><h2 className={`text-3xl font-display font-bold ${isDark ? 'text-white' : 'text-zinc-900'}`}>Art Direction</h2><p className="text-[10px] font-bold text-zinc-500 uppercase tracking-[0.3em]">Refine parameters for final synthesis</p></div>
+                        <div className="flex gap-3"><button onClick={() => setUseSearch(!useSearch)} className={`flex items-center gap-2 px-4 py-2 rounded-xl border transition-all ${useSearch ? 'bg-blue-500/20 border-blue-500 text-blue-400' : (isDark ? 'bg-white/5 border-white/10 text-white/30' : 'bg-white border-black/10 text-zinc-400')}`} title="Enable Google Search Grounding (Pro Mode)"><Globe size={14} /><span className="text-[10px] font-bold uppercase tracking-widest">Web Research</span></button></div>
                      </div>
                      <div className="flex-1 grid grid-cols-1 lg:grid-cols-2 gap-12 overflow-y-auto custom-scrollbar pr-2">
                         <div className="flex flex-col gap-6">
@@ -991,14 +1336,14 @@ const App: React.FC = () => {
                               <div className="flex items-center justify-between">
                                 <label className="text-[10px] font-bold text-zinc-500 uppercase tracking-widest">Enhanced Synthesis</label>
                                 <div className="flex items-center gap-2">
-                                    <button onClick={undoPrompt} disabled={currentPromptIndex <= 0} className={`p-1.5 rounded-lg border border-white/5 transition-all ${currentPromptIndex > 0 ? 'text-zinc-400 hover:text-white bg-white/5 hover:bg-white/10' : 'text-zinc-700 bg-transparent cursor-not-allowed'}`} title="Undo Typing"><Undo size={14}/></button>
-                                    <button onClick={redoPrompt} disabled={currentPromptIndex >= promptHistory.length - 1} className={`p-1.5 rounded-lg border border-white/5 transition-all ${currentPromptIndex < promptHistory.length - 1 ? 'text-zinc-400 hover:text-white bg-white/5 hover:bg-white/10' : 'text-zinc-700 bg-transparent cursor-not-allowed'}`} title="Redo Typing"><Redo size={14}/></button>
+                                    <button onClick={undoPrompt} disabled={currentPromptIndex <= 0} className={`p-1.5 rounded-lg border transition-all ${currentPromptIndex > 0 ? (isDark ? 'text-zinc-400 hover:text-white bg-white/5 border-white/5 hover:bg-white/10' : 'text-zinc-500 hover:text-black bg-white border-black/5 hover:bg-zinc-50') : 'text-zinc-700 bg-transparent border-transparent cursor-not-allowed'}`} title="Undo Typing"><Undo size={14}/></button>
+                                    <button onClick={redoPrompt} disabled={currentPromptIndex >= promptHistory.length - 1} className={`p-1.5 rounded-lg border transition-all ${currentPromptIndex < promptHistory.length - 1 ? (isDark ? 'text-zinc-400 hover:text-white bg-white/5 border-white/5 hover:bg-white/10' : 'text-zinc-500 hover:text-black bg-white border-black/5 hover:bg-zinc-50') : 'text-zinc-700 bg-transparent border-transparent cursor-not-allowed'}`} title="Redo Typing"><Redo size={14}/></button>
                                 </div>
                               </div>
                               <div className="relative flex-1">
-                                <textarea value={enhancedPrompt} onChange={handlePromptTextChange} className="w-full h-full bg-black/40 border border-white/10 rounded-2xl p-6 text-sm font-mono leading-relaxed focus:border-white/40 focus:outline-none transition-all shadow-inner min-h-[160px]" />
+                                <textarea value={enhancedPrompt} onChange={handlePromptTextChange} className={`w-full h-full border rounded-2xl p-6 text-sm font-mono leading-relaxed focus:outline-none transition-all shadow-inner min-h-[160px] ${isDark ? 'bg-black/40 border-white/10 text-white focus:border-white/40' : 'bg-white border-black/10 text-zinc-900 focus:border-black/20'}`} />
                                 <div className="absolute bottom-4 right-4 pointer-events-none opacity-20">
-                                   <span className="text-[7px] font-bold uppercase tracking-widest text-white">Ctrl+Enter to create</span>
+                                   <span className={`text-[7px] font-bold uppercase tracking-widest ${isDark ? 'text-white' : 'text-black'}`}>Ctrl+Enter to create</span>
                                 </div>
                               </div>
                            </div>
@@ -1010,16 +1355,16 @@ const App: React.FC = () => {
                                     <button 
                                       key={r.id} 
                                       onClick={() => setAspectRatio(r.id)} 
-                                      className={`relative flex flex-col items-center justify-center gap-2 p-3 rounded-2xl border transition-all duration-300 group ${aspectRatio === r.id ? 'bg-white border-white shadow-xl scale-[1.02]' : 'bg-white/5 border-white/10 hover:bg-white/10 hover:border-white/20'}`}
+                                      className={`relative flex flex-col items-center justify-center gap-2 p-3 rounded-2xl border transition-all duration-300 group ${aspectRatio === r.id ? (isDark ? 'bg-white border-white shadow-xl scale-[1.02]' : 'bg-black border-black shadow-xl scale-[1.02]') : (isDark ? 'bg-white/5 border-white/10 hover:bg-white/10 hover:border-white/20' : 'bg-white border-black/5 hover:bg-zinc-50 hover:border-black/10')}`}
                                     >
-                                      <div className={`p-2 rounded-xl transition-colors ${aspectRatio === r.id ? 'bg-black text-white' : 'bg-white/5 text-zinc-400 group-hover:text-white'}`}>
+                                      <div className={`p-2 rounded-xl transition-colors ${aspectRatio === r.id ? (isDark ? 'bg-black text-white' : 'bg-white text-black') : (isDark ? 'bg-white/5 text-zinc-400 group-hover:text-white' : 'bg-black/5 text-zinc-400 group-hover:text-black')}`}>
                                         <RatioShape ratio={r.id} />
                                       </div>
                                       <div className="flex flex-col items-center gap-1">
-                                        <span className={`text-xs font-black uppercase tracking-widest ${aspectRatio === r.id ? 'text-black' : 'text-zinc-300 group-hover:text-white'}`}>{r.label}</span>
-                                        <span className={`text-[10px] font-mono font-medium ${aspectRatio === r.id ? 'text-black/60' : 'text-zinc-600'}`}>{r.id}</span>
+                                        <span className={`text-xs font-black uppercase tracking-widest ${aspectRatio === r.id ? (isDark ? 'text-black' : 'text-white') : (isDark ? 'text-zinc-300 group-hover:text-white' : 'text-zinc-500 group-hover:text-black')}`}>{r.label}</span>
+                                        <span className={`text-[10px] font-mono font-medium ${aspectRatio === r.id ? (isDark ? 'text-black/60' : 'text-white/60') : 'text-zinc-600'}`}>{r.id}</span>
                                       </div>
-                                      {aspectRatio === r.id && <div className="absolute top-3 right-3"><CheckCircle2 size={16} className="text-black" /></div>}
+                                      {aspectRatio === r.id && <div className="absolute top-3 right-3"><CheckCircle2 size={16} className={isDark ? "text-black" : "text-white"} /></div>}
                                     </button>
                                   ))}
                                 </div>
@@ -1035,7 +1380,7 @@ const App: React.FC = () => {
                                              <button 
                                                disabled={isLocked} 
                                                onClick={() => setResolution(res)} 
-                                               className={`w-full py-2 rounded-lg text-[10px] font-bold border transition-all relative overflow-hidden ${isLocked ? 'bg-black/40 border-white/5 text-zinc-500 cursor-not-allowed grayscale' : ''} ${!isLocked && resolution === res ? 'bg-white text-black border-white shadow-[0_0_15px_rgba(255,255,255,0.2)]' : ''} ${!isLocked && resolution !== res ? 'bg-white/5 border-white/10 text-zinc-500 hover:text-white hover:bg-white/10' : ''}`}
+                                               className={`w-full py-2 rounded-lg text-[10px] font-bold border transition-all relative overflow-hidden ${isLocked ? (isDark ? 'bg-black/40 border-white/5 text-zinc-500' : 'bg-zinc-100 border-black/5 text-zinc-400') + ' cursor-not-allowed grayscale' : ''} ${!isLocked && resolution === res ? (isDark ? 'bg-white text-black border-white shadow-[0_0_15px_rgba(255,255,255,0.2)]' : 'bg-black text-white border-black shadow-xl') : ''} ${!isLocked && resolution !== res ? (isDark ? 'bg-white/5 border-white/10 text-zinc-500 hover:text-white hover:bg-white/10' : 'bg-white border-black/5 text-zinc-500 hover:text-black hover:bg-zinc-50') : ''}`}
                                              >
                                                 {res}
                                                 {isLocked && <Lock size={8} className="absolute top-1 right-1 text-zinc-400" />}
@@ -1053,19 +1398,20 @@ const App: React.FC = () => {
                            </div>
                         </div>
                         <div className="flex flex-col gap-8">
-                           <div className="grid grid-cols-2 gap-6 p-5 rounded-2xl bg-white/5 border border-white/10">
-                              <div><label className="flex items-center gap-2 text-[10px] font-bold text-zinc-500 uppercase tracking-widest mb-3"><CameraIcon size={12} /> Camera Angle</label><div className="relative"><select value={selectedAngle} disabled={isAiMode} onChange={(e) => setSelectedAngle(e.target.value)} className={`w-full appearance-none bg-black/40 border border-white/10 rounded-xl px-4 py-3 text-xs font-bold text-white focus:outline-none focus:border-white/30 transition-colors ${isAiMode ? 'opacity-40 cursor-not-allowed' : 'cursor-pointer hover:bg-black/60'}`}>{CAMERA_ANGLES.map(angle => (<option key={angle} value={angle}>{angle}</option>))}</select><ChevronDown size={14} className="absolute right-3 top-1/2 -translate-y-1/2 text-white/30 pointer-events-none" /></div></div>
-                              <div><label className="flex items-center gap-2 text-[10px] font-bold text-zinc-500 uppercase tracking-widest mb-3"><Aperture size={12} /> Lens Type</label><div className="relative"><select value={selectedLens} disabled={isAiMode} onChange={(e) => setSelectedLens(e.target.value)} className={`w-full appearance-none bg-black/40 border border-white/10 rounded-xl px-4 py-3 text-xs font-bold text-white focus:outline-none focus:border-white/30 transition-colors ${isAiMode ? 'opacity-40 cursor-not-allowed' : 'cursor-pointer hover:bg-black/60'}`}>{LENS_TYPES.map(lens => (<option key={lens} value={lens}>{lens}</option>))}</select><ChevronDown size={14} className="absolute right-3 top-1/2 -translate-y-1/2 text-white/30 pointer-events-none" /></div></div>
+                           <div className={`grid grid-cols-2 gap-6 p-5 rounded-2xl border ${isDark ? 'bg-white/5 border-white/10' : 'bg-white border-black/5'}`}>
+                              <div><label className="flex items-center gap-2 text-[10px] font-bold text-zinc-500 uppercase tracking-widest mb-3"><CameraIcon size={12} /> Camera Angle</label><div className="relative"><select value={selectedAngle} disabled={isAiMode} onChange={(e) => setSelectedAngle(e.target.value)} className={`w-full appearance-none border rounded-xl px-4 py-3 text-xs font-bold focus:outline-none transition-colors ${isDark ? 'bg-black/40 border-white/10 text-white focus:border-white/30 hover:bg-black/60' : 'bg-zinc-50 border-black/10 text-zinc-900 focus:border-black/20 hover:bg-zinc-100'} ${isAiMode ? 'opacity-40 cursor-not-allowed' : 'cursor-pointer'}`}>{CAMERA_ANGLES.map(angle => (<option key={angle} value={angle}>{angle}</option>))}</select><ChevronDown size={14} className={`absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none ${isDark ? 'text-white/30' : 'text-black/30'}`} /></div></div>
+                              <div><label className="flex items-center gap-2 text-[10px] font-bold text-zinc-500 uppercase tracking-widest mb-3"><Aperture size={12} /> Lens Type</label><div className="relative"><select value={selectedLens} disabled={isAiMode} onChange={(e) => setSelectedLens(e.target.value)} className={`w-full appearance-none border rounded-xl px-4 py-3 text-xs font-bold focus:outline-none transition-colors ${isDark ? 'bg-black/40 border-white/10 text-white focus:border-white/30 hover:bg-black/60' : 'bg-zinc-50 border-black/10 text-zinc-900 focus:border-black/20 hover:bg-zinc-100'} ${isAiMode ? 'opacity-40 cursor-not-allowed' : 'cursor-pointer'}`}>{LENS_TYPES.map(lens => (<option key={lens} value={lens}>{lens}</option>))}</select><ChevronDown size={14} className={`absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none ${isDark ? 'text-white/30' : 'text-black/30'}`} /></div></div>
                            </div>
                            {isAiMode && <div className="text-[10px] text-center text-zinc-500">Camera settings auto-optimized by addot</div>}
-                           <div><label className="text-[10px] font-bold text-zinc-500 uppercase tracking-widest mb-4 block">Structural Reference ({genRefImages.length}/5)</label><div className="grid grid-cols-3 gap-3">{genRefImages.map((img, i) => (<div key={i} className="aspect-square rounded-2xl bg-white/5 border border-white/10 overflow-hidden relative group"><img src={img} className="w-full h-full object-cover" /><button onClick={() => setGenRefImages(p => p.filter((_, idx) => idx !== i))} className="absolute inset-0 bg-black/60 opacity-0 group-hover:opacity-100 flex items-center justify-center transition-opacity"><X size={16}/></button></div>))}<button onClick={() => genInputRef.current?.click()} className="aspect-square rounded-2xl border border-dashed border-white/10 flex flex-col items-center justify-center gap-2 text-white/20 hover:text-white/60 hover:bg-white/5 transition-all"><Plus size={20} /><span className="text-[8px] font-bold uppercase tracking-widest">Add Reference</span></button><input type="file" ref={genInputRef} multiple hidden accept="image/*" onChange={(e) => { const files = Array.from(e.target.files || []); files.forEach((f: File) => { const r = new FileReader(); r.onload = () => setGenRefImages(prev => [...prev, r.result as string].slice(0, 5)); r.readAsDataURL(f); }); }} /></div></div>
-                           <div className="mt-auto space-y-4"><div className="p-4 rounded-2xl bg-white/5 border border-white/10 flex items-center gap-4"><div className="w-10 h-10 rounded-full bg-blue-500/20 flex items-center justify-center text-blue-400"><Zap size={20} fill="currentColor" /></div><div><p className="text-[10px] font-bold text-white uppercase tracking-widest">Synthesis Mode</p><p className="text-[9px] text-zinc-500 uppercase tracking-widest">Estimated: 4-8 Seconds</p></div></div><button onClick={() => handleGenerateImage()} disabled={isGeneratingImage} className="w-full btn-primary py-6 text-sm flex items-center justify-center gap-3 shadow-2xl">{isGeneratingImage ? <Loader2 className="animate-spin" /> : <>Create <Sparkles size={18} /></>}</button></div>
+                           <div><label className="text-[10px] font-bold text-zinc-500 uppercase tracking-widest mb-4 block">Structural Reference ({genRefImages.length}/5)</label><div className="grid grid-cols-3 gap-3">{genRefImages.map((img, i) => (<div key={i} className={`aspect-square rounded-2xl border overflow-hidden relative group ${isDark ? 'bg-white/5 border-white/10' : 'bg-white border-black/10'}`}><img src={img} className="w-full h-full object-cover" /><button onClick={() => setGenRefImages(p => p.filter((_, idx) => idx !== i))} className="absolute inset-0 bg-black/60 opacity-0 group-hover:opacity-100 flex items-center justify-center transition-opacity"><X size={16}/></button></div>))}<button onClick={() => genInputRef.current?.click()} className={`aspect-square rounded-2xl border border-dashed flex flex-col items-center justify-center gap-2 transition-all ${isDark ? 'border-white/10 text-white/20 hover:text-white/60 hover:bg-white/5' : 'border-black/10 text-black/20 hover:text-black/60 hover:bg-black/5'}`}><Plus size={20} /><span className="text-[8px] font-bold uppercase tracking-widest">Add Reference</span></button><input type="file" ref={genInputRef} multiple hidden accept="image/*" onChange={(e) => { const files = Array.from(e.target.files || []); files.forEach((f: File) => { const r = new FileReader(); r.onload = () => setGenRefImages(prev => [...prev, r.result as string].slice(0, 5)); r.readAsDataURL(f); }); }} /></div></div>
+                           <div className="mt-auto space-y-4"><div className={`p-4 rounded-2xl border flex items-center gap-4 ${isDark ? 'bg-white/5 border-white/10' : 'bg-white border-black/5'}`}><div className="w-10 h-10 rounded-full bg-blue-500/20 flex items-center justify-center text-blue-400"><Zap size={20} fill="currentColor" /></div><div><p className={`text-[10px] font-bold uppercase tracking-widest ${isDark ? 'text-white' : 'text-zinc-900'}`}>Synthesis Mode</p><p className="text-[9px] text-zinc-500 uppercase tracking-widest">Estimated: 4-8 Seconds</p></div></div><button onClick={() => handleGenerateImage()} disabled={isGeneratingImage} className="w-full btn-primary py-6 text-sm flex items-center justify-center gap-3 shadow-2xl">{isGeneratingImage ? <Loader2 className="animate-spin" /> : <>Create <Sparkles size={18} /></>}</button></div>
                         </div>
                      </div>
                   </div>
                 )}
                 {currentStep === AppStep.VIEW_RESULT && generatedImage && (
-                  <div className="glass-panel rounded-3xl p-1 h-full relative overflow-hidden flex flex-col border-white/20 animate-fade-in shadow-2xl">
+                  <div className={`glass-panel rounded-3xl p-1 h-full relative overflow-hidden flex flex-col animate-fade-in shadow-2xl ${isDark ? 'border-white/20' : 'border-black/5'}`}>
+                     {isRemovingBg && <MagicLoader />}
                      <div className="flex-1 bg-[#020204] relative rounded-[2.2rem] overflow-hidden flex items-center justify-center">
                         <img src={generatedImage} className="max-w-full max-h-full object-contain" />
                         <div className="absolute top-8 left-8 flex gap-3">
@@ -1075,113 +1421,332 @@ const App: React.FC = () => {
                         <div className="absolute top-8 right-8 flex gap-3">
                            <button onClick={() => window.open(generatedImage, '_blank')} className="w-12 h-12 rounded-full bg-black/60 backdrop-blur-xl border border-white/10 flex items-center justify-center text-white hover:bg-black transition-all"><Maximize2 size={20} /></button>
                         </div>
-                        <div className="absolute bottom-10 left-1/2 -translate-x-1/2 flex items-center gap-4 px-6 py-4 rounded-3xl bg-black/40 backdrop-blur-2xl border border-white/10 shadow-2xl animate-slide-up"><button onClick={() => { const link = document.createElement('a'); link.href = generatedImage; link.download = `imagix-${Date.now()}.png`; link.click(); }} className="btn-primary px-8 py-3 text-[10px] font-bold uppercase tracking-widest flex items-center gap-2"><Download size={14} /> Download as PNG</button><div className="w-px h-6 bg-white/10 mx-2"></div><button onClick={handleShare} className="btn-secondary p-3 text-blue-400" title="Share Creation"><Share2 size={18} /></button><button onClick={() => setIsDrawingMode(true)} className="btn-secondary p-3" title="Structural Edit"><Pencil size={18} /></button><button onClick={() => setCurrentStep(AppStep.REFINE_PROMPT)} className="btn-secondary p-3" title="Back to Refinement"><Edit3 size={18} /></button></div>
+                        <div className="absolute bottom-6 left-1/2 -translate-x-1/2 flex flex-wrap justify-center items-center gap-2 p-1.5 max-w-[90%] w-auto rounded-2xl bg-black/60 backdrop-blur-2xl border border-white/10 shadow-2xl animate-slide-up z-30">
+                           <div className="relative">
+                              <button onClick={() => setShowDownloadMenu(!showDownloadMenu)} className="btn-primary px-3 py-1.5 text-[9px] font-bold uppercase tracking-widest flex items-center gap-1.5 h-full whitespace-nowrap">
+                                <Download size={12} /> <span className="hidden sm:inline">Download</span> <ChevronDown size={10} className={`transition-transform ${showDownloadMenu ? 'rotate-180' : ''}`} />
+                              </button>
+                              {showDownloadMenu && (
+                                <div className="absolute bottom-full left-0 mb-2 w-32 glass-panel rounded-xl overflow-hidden flex flex-col shadow-xl animate-fade-in border border-white/10 bg-[#0A0A0C]">
+                                  <button onClick={() => handleDownload('png')} className="px-4 py-3 text-left hover:bg-white/10 text-[10px] font-bold text-white transition-colors border-b border-white/5">PNG <span className="text-zinc-500 ml-1">HQ</span></button>
+                                  <button onClick={() => handleDownload('jpeg')} className="px-4 py-3 text-left hover:bg-white/10 text-[10px] font-bold text-white transition-colors border-b border-white/5">JPG <span className="text-zinc-500 ml-1">Small</span></button>
+                                  <button onClick={() => handleDownload('webp')} className="px-4 py-3 text-left hover:bg-white/10 text-[10px] font-bold text-white transition-colors">WEBP <span className="text-zinc-500 ml-1">Web</span></button>
+                                </div>
+                              )}
+                           </div>
+                           <div className="w-px h-5 bg-white/10 mx-1 hidden sm:block"></div>
+                           <button onClick={handleRemoveBackground} className="btn-secondary px-3 py-1.5 text-[9px] text-white flex items-center gap-1.5 whitespace-nowrap" title="Remove Background"><Eraser size={12} /> <span className="hidden sm:inline">Remove BG</span></button>
+                           <button onClick={handleShare} className="btn-secondary p-1.5 text-blue-400" title="Share Creation"><Share2 size={16} /></button>
+                           <button onClick={() => setIsDrawingMode(true)} className="btn-secondary p-1.5" title="Structural Edit"><Pencil size={16} /></button>
+                           <button onClick={() => setCurrentStep(AppStep.REFINE_PROMPT)} className="btn-secondary p-1.5" title="Back to Refinement"><Edit3 size={16} /></button>
+                        </div>
                      </div>
                   </div>
                 )}
              </div>
           </div>
         )}
+        
+        {currentStep === AppStep.BG_REMOVER && (
+          <div className="w-full max-w-5xl animate-slide-up flex flex-col gap-8">
+             <div className="text-center mb-8">
+                <h2 className={`text-4xl font-display font-bold mb-4 ${isDark ? 'text-white' : 'text-zinc-900'}`}>Background Remover</h2>
+                <p className="text-xs font-bold uppercase tracking-widest text-zinc-500">Isolate your subject instantly with studio precision</p>
+             </div>
+             
+             <div className={`glass-panel rounded-3xl p-8 ${isDark ? 'border-white/10' : 'border-black/5 bg-white/60'}`}>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+                   <div className="space-y-6">
+                      <div 
+                        onClick={() => !bgRemoverImage && bgRemoverInputRef.current?.click()}
+                        className={`aspect-square rounded-2xl border-2 border-dashed flex flex-col items-center justify-center gap-4 cursor-pointer transition-all relative group overflow-hidden ${isDark ? 'border-white/10 hover:border-white/30 hover:bg-white/5' : 'border-black/10 hover:border-black/30 hover:bg-black/5'}`}
+                      >
+                         {bgRemoverImage ? (
+                            <>
+                                <img src={bgRemoverImage} className="w-full h-full object-contain bg-black/50" />
+                                <button 
+                                    onClick={(e) => {
+                                        e.stopPropagation();
+                                        setBgRemoverImage(null);
+                                        setBgRemoverResult(null);
+                                    }}
+                                    className="absolute top-4 right-4 p-2 rounded-full bg-red-500/80 text-white hover:bg-red-600 transition-colors opacity-0 group-hover:opacity-100 backdrop-blur-sm z-10"
+                                    title="Remove Image"
+                                >
+                                    <Trash2 size={18} />
+                                </button>
+                            </>
+                         ) : (
+                            <>
+                               <div className="p-4 rounded-full bg-pink-500/10 text-pink-400">
+                                  <Upload size={32} />
+                               </div>
+                               <div className="text-center">
+                                  <p className={`text-sm font-bold ${isDark ? 'text-white' : 'text-zinc-900'}`}>Click to Upload Image</p>
+                                  <p className="text-[10px] text-zinc-500 mt-1 uppercase tracking-widest">Supports JPG, PNG, WEBP</p>
+                               </div>
+                            </>
+                         )}
+                         <input 
+                            type="file" 
+                            ref={bgRemoverInputRef} 
+                            hidden 
+                            accept="image/*" 
+                            onChange={(e) => {
+                               const file = e.target.files?.[0];
+                               if (file) {
+                                  const reader = new FileReader();
+                                  reader.onload = (e) => setBgRemoverImage(e.target?.result as string);
+                                  reader.readAsDataURL(file);
+                               }
+                            }} 
+                         />
+                      </div>
+                      
+                      <button 
+                        onClick={handleStandaloneBgRemoval}
+                        disabled={isRemovingBg || !bgRemoverImage}
+                        className="w-full btn-primary py-4 flex items-center justify-center gap-2 text-sm font-bold uppercase tracking-widest hover:scale-[1.02] transition-transform"
+                      >
+                         {isRemovingBg ? <Loader2 size={16} className="animate-spin" /> : <Eraser size={18} />}
+                         <span>Remove Background</span>
+                      </button>
+                   </div>
+
+                   <div className={`aspect-square rounded-2xl border flex items-center justify-center relative overflow-hidden ${isDark ? 'bg-black/40 border-white/10' : 'bg-zinc-100 border-black/5'}`}>
+                      {/* Checkerboard pattern for transparency */}
+                      <div className="absolute inset-0 opacity-20" style={{
+                          backgroundImage: `linear-gradient(45deg, #808080 25%, transparent 25%), linear-gradient(-45deg, #808080 25%, transparent 25%), linear-gradient(45deg, transparent 75%, #808080 75%), linear-gradient(-45deg, transparent 75%, #808080 75%)`,
+                          backgroundSize: '20px 20px',
+                          backgroundPosition: '0 0, 0 10px, 10px -10px, -10px 0px'
+                      }}></div>
+                      
+                      {!bgRemoverResult ? (
+                         <div className="flex flex-col items-center gap-3 text-zinc-500 opacity-50 relative z-10">
+                            <Layers size={40} />
+                            <p className="text-[10px] font-bold uppercase tracking-widest">Transparent Result</p>
+                         </div>
+                      ) : (
+                         <img src={bgRemoverResult} className="w-full h-full object-contain relative z-10" />
+                      )}
+
+                      {/* Reuse Magic Loader Overlay */}
+                      {isRemovingBg && (
+                          <div className="absolute inset-0 z-20">
+                             <MagicLoader />
+                          </div>
+                      )}
+                      
+                      {bgRemoverResult && (
+                          <div className="absolute bottom-6 left-1/2 -translate-x-1/2 z-30 flex gap-2 animate-slide-up">
+                              <button 
+                                onClick={() => handleDownload('png', bgRemoverResult)} 
+                                className="px-6 py-2 rounded-lg bg-white text-black font-bold text-[10px] uppercase tracking-widest shadow-lg hover:scale-105 transition-all flex items-center gap-2"
+                              >
+                                <Download size={14} /> Download PNG
+                              </button>
+                          </div>
+                      )}
+                   </div>
+                </div>
+             </div>
+          </div>
+        )}
+
+        {currentStep === AppStep.IMAGE_ANALYSIS && (
+          <div className="w-full max-w-4xl animate-slide-up flex flex-col gap-8">
+             <div className="text-center mb-8">
+                <h2 className={`text-4xl font-display font-bold mb-4 ${isDark ? 'text-white' : 'text-zinc-900'}`}>Smart Text Extractor</h2>
+                <p className="text-xs font-bold uppercase tracking-widest text-zinc-500">Instant OCR: Upload an image to copy text from it</p>
+             </div>
+             
+             <div className={`glass-panel rounded-3xl p-8 ${isDark ? 'border-white/10' : 'border-black/5 bg-white/60'}`}>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+                   <div className="space-y-6">
+                      <div 
+                        onClick={() => !analysisImage && analysisInputRef.current?.click()}
+                        className={`aspect-video rounded-2xl border-2 border-dashed flex flex-col items-center justify-center gap-4 cursor-pointer transition-all relative group ${isDark ? 'border-white/10 hover:border-white/30 hover:bg-white/5' : 'border-black/10 hover:border-black/30 hover:bg-black/5'} ${!analysisImage ? 'p-12' : 'p-0 overflow-hidden border-solid border-white/20'}`}
+                      >
+                         {analysisImage ? (
+                            <>
+                                <img src={analysisImage} className="w-full h-full object-contain bg-black/50" />
+                                <button 
+                                    onClick={(e) => {
+                                        e.stopPropagation();
+                                        setAnalysisImage(null);
+                                        setAnalysisResult(null);
+                                    }}
+                                    className="absolute top-2 right-2 p-2 rounded-full bg-red-500/80 text-white hover:bg-red-600 transition-colors opacity-0 group-hover:opacity-100 backdrop-blur-sm"
+                                    title="Remove Image"
+                                >
+                                    <Trash2 size={16} />
+                                </button>
+                            </>
+                         ) : (
+                            <>
+                               <div className="p-4 rounded-full bg-blue-500/10 text-blue-400">
+                                  <Upload size={24} />
+                               </div>
+                               <div className="text-center">
+                                  <p className={`text-sm font-bold ${isDark ? 'text-white' : 'text-zinc-900'}`}>Click to Upload Image</p>
+                                  <p className="text-[10px] text-zinc-500 mt-1 uppercase tracking-widest">Supports JPG, PNG, WEBP</p>
+                               </div>
+                            </>
+                         )}
+                         <input 
+                            type="file" 
+                            ref={analysisInputRef} 
+                            hidden 
+                            accept="image/*" 
+                            onChange={(e) => {
+                               const file = e.target.files?.[0];
+                               if (file) {
+                                  const reader = new FileReader();
+                                  reader.onload = (e) => setAnalysisImage(e.target?.result as string);
+                                  reader.readAsDataURL(file);
+                               }
+                            }} 
+                         />
+                      </div>
+                      
+                      <button 
+                        onClick={handleAnalyzeImage}
+                        disabled={isAnalyzing || !analysisImage}
+                        className="w-full btn-primary py-4 flex items-center justify-center gap-2 text-sm font-bold uppercase tracking-widest hover:scale-[1.02] transition-transform"
+                      >
+                         {isAnalyzing ? <Loader2 size={16} className="animate-spin" /> : <ScanEye size={18} />}
+                         <span>Extract Text</span>
+                      </button>
+                   </div>
+
+                   <div className={`rounded-2xl p-6 border overflow-y-auto custom-scrollbar h-[400px] relative ${isDark ? 'bg-black/40 border-white/10' : 'bg-white/50 border-black/5'}`}>
+                      {!analysisResult ? (
+                         <div className="h-full flex flex-col items-center justify-center text-zinc-500 gap-3 opacity-50">
+                            <ScanEye size={32} />
+                            <p className="text-[10px] font-bold uppercase tracking-widest">Extracted Text will appear here</p>
+                         </div>
+                      ) : (
+                         <div className={`prose prose-sm max-w-none ${isDark ? 'prose-invert' : ''}`}>
+                            <div className="whitespace-pre-wrap font-mono text-xs leading-relaxed opacity-90 select-text">
+                               {analysisResult}
+                            </div>
+                         </div>
+                      )}
+                      
+                      {analysisResult && (
+                          <div className="absolute top-4 right-4 flex gap-2">
+                             <button 
+                                onClick={() => {navigator.clipboard.writeText(analysisResult); setError("Copied to clipboard"); setTimeout(()=>setError(null), 2000)}}
+                                className="p-2 rounded-lg bg-white/10 hover:bg-white/20 text-white transition-colors backdrop-blur-md"
+                                title="Copy Text"
+                             >
+                                <Copy size={14} />
+                             </button>
+                          </div>
+                      )}
+                   </div>
+                </div>
+             </div>
+          </div>
+        )}
 
         {currentStep === AppStep.BILLING && (
-          <div className="w-full flex flex-col items-center justify-center py-12 px-4 animate-slide-up">
-            <h2 className="text-4xl md:text-5xl font-display font-bold text-white mb-4">Choose Your Plan</h2>
-            <p className="text-zinc-500 mb-12 text-center max-w-lg">Unlock professional capabilities, higher resolutions, and commercial rights.</p>
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-8 w-full max-w-6xl">
-              <div className={`glass-panel p-8 rounded-3xl flex flex-col border transition-all ${plan === 'free' ? 'border-emerald-500/50 bg-emerald-500/5' : 'border-white/10'}`}>
-                <div className="mb-6"><span className="text-emerald-400 text-xs font-bold uppercase tracking-widest bg-emerald-500/10 px-3 py-1 rounded-full">Starter</span></div>
-                <div className="flex items-baseline gap-1 mb-6"><span className="text-4xl font-bold text-white">0/-pkr</span><span className="text-zinc-500">/ forever</span></div>
-                <div className="space-y-4 mb-8 flex-1">
-                  <div className="flex items-center gap-3 text-sm text-zinc-300"><Check size={16} className="text-emerald-500" /><span>1K Resolution limit</span></div>
-                  <div className="flex items-center gap-3 text-sm text-zinc-300"><Check size={16} className="text-emerald-500" /><span>10 Images Lifetime Limit</span></div>
-                  <div className="flex items-center gap-3 text-sm text-zinc-300"><Check size={16} className="text-emerald-500" /><span>Personal Usage Only</span></div>
-                  <div className="flex items-center gap-3 text-sm text-zinc-500"><X size={16} /><span>No 2K/4K Support</span></div>
+          <div className="w-full max-w-5xl animate-slide-up pb-12">
+             <div className="text-center mb-12">
+                <h2 className={`text-4xl font-display font-bold mb-4 ${isDark ? 'text-white' : 'text-zinc-900'}`}>Choose Your Engine</h2>
+                <p className="text-xs font-bold uppercase tracking-widest text-zinc-500">Unlock advanced models and higher resolutions</p>
+             </div>
+
+             <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                <div className={`relative p-8 rounded-3xl border flex flex-col gap-6 ${plan === 'free' ? (isDark ? 'bg-white/10 border-white/20' : 'bg-white border-black/10 shadow-xl') : (isDark ? 'bg-white/5 border-white/5 opacity-60 hover:opacity-100' : 'bg-white/40 border-black/5 opacity-60 hover:opacity-100')} transition-all duration-300`}>
+                   <div className="space-y-2">
+                      <h3 className={`text-xl font-bold ${isDark ? 'text-white' : 'text-zinc-900'}`}>Trial Studio</h3>
+                      <p className="text-2xl font-display font-black text-transparent bg-clip-text bg-gradient-to-r from-zinc-400 to-zinc-600">PKR 0 <span className="text-sm font-bold text-zinc-500 tracking-widest uppercase">/ mo</span></p>
+                   </div>
+                   <div className="space-y-4 flex-1">
+                      {[
+                         { text: "10 Lifetime Credits", check: true },
+                         { text: "Nano Banana (Flash)", check: true },
+                         { text: "Standard Speed", check: true },
+                         { text: "1K Resolution Limit", check: true },
+                         { text: "Basic Styles", check: true },
+                         { text: "Public Gallery", check: true },
+                         { text: "Commercial License", check: false },
+                         { text: "Magic Edit Tools", check: false },
+                      ].map((feature, i) => (
+                         <div key={i} className="flex items-center gap-3">
+                            <div className={`p-1 rounded-full ${feature.check ? 'bg-emerald-500/20 text-emerald-500' : 'bg-red-500/20 text-red-500'}`}>
+                               {feature.check ? <Check size={10} /> : <X size={10} />}
+                            </div>
+                            <span className={`text-[10px] font-bold uppercase tracking-widest ${isDark ? 'text-zinc-400' : 'text-zinc-500'}`}>{feature.text}</span>
+                         </div>
+                      ))}
+                   </div>
+                   <button className={`w-full py-4 rounded-xl font-bold text-[10px] uppercase tracking-widest transition-all ${isDark ? 'bg-white/5 text-white cursor-default' : 'bg-black/5 text-zinc-900 cursor-default'}`}>Current Plan</button>
                 </div>
-                <button onClick={() => handleUpdatePlan('free')} disabled={plan === 'free'} className={`w-full py-4 rounded-xl font-bold uppercase text-xs tracking-widest transition-all ${plan === 'free' ? 'bg-white/10 text-white cursor-default' : 'bg-white text-black hover:bg-zinc-200'}`}>{plan === 'free' ? 'Current Plan' : 'Select Free'}</button>
-                {plan === 'free' && <p className="text-center text-[10px] text-zinc-500 mt-4 uppercase tracking-widest">Usage: {usageCount} / 10</p>}
-              </div>
-              <div className={`glass-panel p-8 rounded-3xl flex flex-col border transition-all relative overflow-hidden ${plan === 'standard' ? 'border-blue-500/50 bg-blue-500/5' : 'border-white/10'}`}>
-                <div className="mb-6"><span className="text-blue-400 text-xs font-bold uppercase tracking-widest bg-blue-500/10 px-3 py-1 rounded-full">Standard</span></div>
-                <div className="flex items-baseline gap-1 mb-6"><span className="text-4xl font-bold text-white">499/-pkr</span><span className="text-zinc-500">/ month</span></div>
-                <div className="space-y-4 mb-8 flex-1">
-                  <div className="flex items-center gap-3 text-sm text-zinc-300"><Check size={16} className="text-blue-500" /><span>Up to 2K Resolution</span></div>
-                  <div className="flex items-center gap-3 text-sm text-zinc-300"><Check size={16} className="text-blue-500" /><span>Unlimited Generations</span></div>
-                   <div className="flex items-center gap-3 text-sm text-zinc-300"><Check size={16} className="text-blue-500" /><span>Nano Banana Access</span></div>
-                  <div className="flex items-center gap-3 text-sm text-zinc-300"><X size={16} /><span>No 4K Support</span></div>
+
+                {/* Standard Plan */}
+                <div className={`relative p-8 rounded-3xl border flex flex-col gap-6 ${plan === 'standard' ? (isDark ? 'bg-white/10 border-white/20' : 'bg-white border-black/10 shadow-xl') : (isDark ? 'bg-white/5 border-white/5 opacity-60 hover:opacity-100' : 'bg-white/40 border-black/5 opacity-60 hover:opacity-100')} transition-all duration-300`}>
+                   <div className="space-y-2">
+                      <h3 className={`text-xl font-bold ${isDark ? 'text-white' : 'text-zinc-900'}`}>Pro Studio</h3>
+                      <p className="text-2xl font-display font-black text-transparent bg-clip-text bg-gradient-to-r from-blue-400 to-blue-600">PKR 2,500 <span className="text-sm font-bold text-zinc-500 tracking-widest uppercase">/ mo</span></p>
+                   </div>
+                   <div className="space-y-4 flex-1">
+                      {[
+                         { text: "Unlimited Generations", check: true },
+                         { text: "Gemini 3 Pro Model", check: true },
+                         { text: "Fast Speed", check: true },
+                         { text: "2K Resolution", check: true },
+                         { text: "All Styles", check: true },
+                         { text: "Private Gallery", check: true },
+                         { text: "Commercial License", check: true },
+                         { text: "Magic Edit Tools", check: true },
+                      ].map((feature, i) => (
+                         <div key={i} className="flex items-center gap-3">
+                            <div className={`p-1 rounded-full ${feature.check ? 'bg-emerald-500/20 text-emerald-500' : 'bg-red-500/20 text-red-500'}`}>
+                               {feature.check ? <Check size={10} /> : <X size={10} />}
+                            </div>
+                            <span className={`text-[10px] font-bold uppercase tracking-widest ${isDark ? 'text-zinc-400' : 'text-zinc-500'}`}>{feature.text}</span>
+                         </div>
+                      ))}
+                   </div>
+                   <button onClick={() => handleUpdatePlan('standard')} className="w-full btn-primary py-4 rounded-xl font-bold text-[10px] uppercase tracking-widest transition-all">Upgrade to Pro</button>
                 </div>
-                <button onClick={() => handleUpdatePlan('standard')} disabled={plan === 'standard'} className={`w-full py-4 rounded-xl font-bold uppercase text-xs tracking-widest transition-all ${plan === 'standard' ? 'bg-white/10 text-white cursor-default' : 'bg-white text-black hover:bg-zinc-200'}`}>{plan === 'standard' ? 'Current Plan' : 'Upgrade to Standard'}</button>
-              </div>
-              <div className={`glass-panel p-8 rounded-3xl flex flex-col border transition-all relative overflow-hidden ${plan === 'pro' ? 'border-purple-500/50 bg-purple-500/5' : 'border-white/10'}`}>
-                {plan !== 'pro' && <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-purple-500 to-pink-500"></div>}
-                <div className="mb-6 flex justify-between items-center"><span className="text-purple-400 text-xs font-bold uppercase tracking-widest bg-purple-500/10 px-3 py-1 rounded-full">Pro Studio</span><Gem size={18} className="text-purple-400" /></div>
-                <div className="flex flex-col gap-1 mb-6">
-                   <div className="flex items-baseline gap-1"><span className="text-4xl font-bold text-white">799/-pkr</span><span className="text-zinc-500">/ month</span></div>
-                   <span className="text-[10px] font-bold text-purple-400 uppercase tracking-widest animate-pulse">Limited Price Offer</span>
+
+                {/* Pro Plan */}
+                 <div className={`relative p-8 rounded-3xl border flex flex-col gap-6 ${plan === 'pro' ? (isDark ? 'bg-white/10 border-white/20' : 'bg-white border-black/10 shadow-xl') : (isDark ? 'bg-white/5 border-white/5 opacity-60 hover:opacity-100' : 'bg-white/40 border-black/5 opacity-60 hover:opacity-100')} transition-all duration-300`}>
+                   <div className="absolute top-0 right-0 p-4">
+                      <div className="bg-gradient-to-r from-purple-500 to-pink-500 text-white text-[8px] font-bold uppercase tracking-widest px-2 py-1 rounded-md">Best Value</div>
+                   </div>
+                   <div className="space-y-2">
+                      <h3 className={`text-xl font-bold ${isDark ? 'text-white' : 'text-zinc-900'}`}>Max Studio</h3>
+                      <p className="text-2xl font-display font-black text-transparent bg-clip-text bg-gradient-to-r from-purple-400 to-pink-600">PKR 5,000 <span className="text-sm font-bold text-zinc-500 tracking-widest uppercase">/ mo</span></p>
+                   </div>
+                   <div className="space-y-4 flex-1">
+                      {[
+                         { text: "Unlimited + Priority", check: true },
+                         { text: "Gemini 3 Pro + Ultra", check: true },
+                         { text: "Turbo Speed", check: true },
+                         { text: "4K Resolution", check: true },
+                         { text: "Custom Styles", check: true },
+                         { text: "Private Gallery", check: true },
+                         { text: "Commercial License", check: true },
+                         { text: "Magic Edit Tools", check: true },
+                      ].map((feature, i) => (
+                         <div key={i} className="flex items-center gap-3">
+                            <div className={`p-1 rounded-full ${feature.check ? 'bg-emerald-500/20 text-emerald-500' : 'bg-red-500/20 text-red-500'}`}>
+                               {feature.check ? <Check size={10} /> : <X size={10} />}
+                            </div>
+                            <span className={`text-[10px] font-bold uppercase tracking-widest ${isDark ? 'text-zinc-400' : 'text-zinc-500'}`}>{feature.text}</span>
+                         </div>
+                      ))}
+                   </div>
+                   <button onClick={() => handleUpdatePlan('pro')} className="w-full btn-primary py-4 rounded-xl font-bold text-[10px] uppercase tracking-widest transition-all">Upgrade to Max</button>
                 </div>
-                <div className="space-y-4 mb-8 flex-1">
-                  <div className="flex items-center gap-3 text-sm text-zinc-300"><Check size={16} className="text-purple-500" /><span>Full 4K Ultra HD</span></div>
-                  <div className="flex items-center gap-3 text-sm text-zinc-300"><Check size={16} className="text-purple-500" /><span>Unlimited Generations</span></div>
-                  <div className="flex items-center gap-3 text-sm text-zinc-300"><Check size={16} className="text-purple-500" /><span>Commercial License</span></div>
-                  <div className="flex items-center gap-3 text-sm text-zinc-300"><Check size={16} className="text-purple-500" /><span>Priority Generation</span></div>
-                </div>
-                <button onClick={() => handleUpdatePlan('pro')} disabled={plan === 'pro'} className={`w-full py-4 rounded-xl font-bold uppercase text-xs tracking-widest transition-all shadow-lg ${plan === 'pro' ? 'bg-white/10 text-white cursor-default' : 'bg-gradient-to-r from-purple-600 to-pink-600 text-white hover:brightness-110'}`}>{plan === 'pro' ? 'Current Plan' : 'Upgrade to Pro'}</button>
-              </div>
-            </div>
+             </div>
           </div>
         )}
       </main>
-
-      {error && (
-         <div className="fixed bottom-12 left-1/2 -translate-x-1/2 glass-panel border-red-500/30 text-red-200 px-8 py-4 rounded-full flex items-center gap-4 z-[200] animate-slide-up shadow-2xl">
-            <XCircle size={18} className="text-red-500" />
-            <span className="text-xs font-bold uppercase tracking-widest">{error}</span>
-            <button onClick={() => setError(null)} className="p-1 hover:text-white transition-colors"><X size={16} /></button>
-         </div>
-      )}
-    </div>
-  );
-};
-
-const LoginScreen: React.FC<{ onConnect: (email: string) => void }> = ({ onConnect }) => {
-  const [email, setEmail] = useState('');
-  return (
-    <div className="min-h-screen bg-[#020204] text-white flex items-center justify-center relative overflow-hidden">
-       <StarField />
-       <div className="relative z-10 flex flex-col items-center text-center max-w-lg w-full px-6 animate-slide-up">
-          <Logo large />
-          <p className="text-zinc-500 mt-8 mb-12 text-lg font-medium tracking-tight">High-performance creative synthesis engine.</p>
-          <div className="w-full glass-panel rounded-3xl p-8 border-white/10 backdrop-blur-3xl shadow-2xl">
-             <div className="mb-8 flex flex-col gap-2">
-                <span className="text-[10px] font-bold text-white uppercase tracking-[0.3em]">Authentication</span>
-                <p className="text-xs text-zinc-500">Enter your email to initialize your workspace.</p>
-             </div>
-             <div className="flex flex-col gap-4 mb-6">
-                 <input 
-                   type="email" 
-                   value={email}
-                   onChange={(e) => setEmail(e.target.value)}
-                   placeholder="Enter email (e.g. alex.studio@gmail.com)" 
-                   className="w-full py-4 px-6 bg-black/40 border border-white/10 rounded-xl text-white placeholder:text-zinc-600 focus:outline-none focus:border-white/30 transition-all font-sans text-sm"
-                 />
-                 <button 
-                   onClick={() => onConnect(email || "creator@imagix.ai")} 
-                   className="w-full py-4 bg-white text-black font-bold text-xs uppercase tracking-[0.1em] rounded-xl flex items-center justify-center gap-3 hover:scale-[1.02] transition-all shadow-xl active:scale-95 group"
-                 >
-                    <Chrome size={18} className="text-blue-600 group-hover:rotate-12 transition-transform" />
-                    Sign in with Google
-                 </button>
-             </div>
-             <div className="flex items-center gap-4 my-6 opacity-50">
-                <div className="h-px bg-white/20 flex-1"></div><span className="text-[10px] font-bold uppercase tracking-widest text-zinc-500">Or</span><div className="h-px bg-white/20 flex-1"></div>
-             </div>
-             <button onClick={() => onConnect("creator@imagix.ai")} className="w-full py-4 bg-white/5 text-zinc-400 font-bold text-xs uppercase tracking-[0.1em] rounded-xl flex items-center justify-center gap-3 hover:bg-white/10 hover:text-white transition-all border border-white/10"><Key size={18} />Continue as Guest</button>
-             <div className="mt-8 pt-8 border-t border-white/5 flex flex-col gap-4">
-                <div className="flex justify-between text-[10px] font-bold text-zinc-600 uppercase tracking-widest"><span>System Status</span><span className="text-emerald-500">Operational</span></div>
-                <div className="flex justify-between text-[10px] font-bold text-zinc-600 uppercase tracking-widest"><span>Kernel Version</span><span>v4.8.2-pro</span></div>
-             </div>
-          </div>
-          <p className="mt-12 text-[10px] text-zinc-700 uppercase tracking-[0.4em] font-bold">Encrypted • Private • Decentralized</p>
-       </div>
     </div>
   );
 };

@@ -2,6 +2,18 @@
 import { GoogleGenAI, GenerateContentResponse } from "@google/genai";
 import { AspectRatio, ImageResolution } from "../types";
 
+// Helper to check for quota/rate limit errors
+const isQuotaError = (error: any): boolean => {
+  const msg = typeof error?.message === 'string' ? error.message : '';
+  const status = error?.status;
+  // Check for 429 status or specific keywords in the message
+  return msg.includes("429") || 
+         msg.toLowerCase().includes("quota") || 
+         msg.includes("RESOURCE_EXHAUSTED") ||
+         status === 429 || 
+         status === "RESOURCE_EXHAUSTED";
+};
+
 /**
  * Uses a lightweight multimodal model with thinking budget to convert a raw user idea 
  * into a professional image prompt.
@@ -76,6 +88,9 @@ export const generateEnhancedPrompt = async (
     return text.trim();
   } catch (error) {
     console.error("Error enhancing prompt:", error);
+    if (isQuotaError(error)) {
+        throw new Error("⚠️ Text generation limit reached. Please wait a moment and try again.");
+    }
     throw error;
   }
 };
@@ -86,6 +101,22 @@ interface ImageConfig {
   useGoogleSearch?: boolean;
 }
 
+// Normalize aspect ratios to standard values supported by the API to prevent 400 errors
+const normalizeAspectRatio = (ratio: AspectRatio): string => {
+  switch (ratio) {
+    case "2:3": return "3:4";
+    case "3:2": return "4:3";
+    case "21:9": return "16:9";
+    case "1:1": 
+    case "3:4":
+    case "4:3":
+    case "9:16":
+    case "16:9":
+      return ratio;
+    default: return "1:1";
+  }
+};
+
 /**
  * Uses the image model to generate an image.
  */
@@ -95,19 +126,19 @@ export const generateImage = async (
   referenceImages: string[] = [], 
   style: string = "Cinematic",
   camera: string | null = null,
-  maskImage: string | null = null
+  maskImage: string | null = null,
+  modelTier: 'flash' | 'pro' = 'pro'
 ): Promise<string> => {
   const apiKey = process.env.API_KEY || "";
   const ai = new GoogleGenAI({ apiKey });
   
-  // Use gemini-3-pro-image-preview for high resolutions or search-grounded tasks
-  const isHighRes = config.resolution === '2K' || config.resolution === '4K';
-  // Note: We do not force Pro for maskImage anymore to allow Flash fallback, 
-  // as Flash often supports basic editing and has better availability.
-  const needsPro = isHighRes || config.useGoogleSearch;
-  const initialModelId = needsPro ? "gemini-3-pro-image-preview" : "gemini-2.5-flash-image";
+  // Select model based on tier
+  const targetModelId = modelTier === 'pro' ? "gemini-3-pro-image-preview" : "gemini-2.5-flash-image";
+  const fallbackModelId = "gemini-2.5-flash-image";
 
-  const runGeneration = async (modelId: string, isProConfig: boolean) => {
+  const runGeneration = async (modelId: string) => {
+      const isProModel = modelId === "gemini-3-pro-image-preview";
+      
       const parts: any[] = [];
       
       // 1. Add Reference Images
@@ -145,16 +176,16 @@ export const generateImage = async (
       parts.push({ text: styledPrompt });
 
       const genConfig: any = {
-          aspectRatio: config.aspectRatio,
+          aspectRatio: normalizeAspectRatio(config.aspectRatio),
       };
 
       // imageSize is only supported by gemini-3-pro-image-preview
-      if (isProConfig) {
+      if (isProModel) {
           genConfig.imageSize = config.resolution;
       }
 
       // Google Search is only available for gemini-3-pro-image-preview
-      const tools = config.useGoogleSearch && isProConfig ? [{ googleSearch: {} }] : undefined;
+      const tools = config.useGoogleSearch && isProModel ? [{ googleSearch: {} }] : undefined;
 
       const response: GenerateContentResponse = await ai.models.generateContent({
         model: modelId,
@@ -181,16 +212,80 @@ export const generateImage = async (
   };
 
   try {
-    return await runGeneration(initialModelId, needsPro);
+    // Attempt generation with target model
+    return await runGeneration(targetModelId);
   } catch (error: any) {
-    // Check for 403 Permission Denied and Fallback
-    if (needsPro && (error.message?.includes("403") || error.message?.includes("PERMISSION_DENIED") || error.status === "PERMISSION_DENIED")) {
-        console.warn(`Permission denied for ${initialModelId}. Falling back to gemini-2.5-flash-image.`);
-        // Retry with Flash model and simplified config (no tools, no imageSize)
-        return await runGeneration("gemini-2.5-flash-image", false);
+    console.warn(`Attempt with ${targetModelId} failed:`, error);
+    
+    // Fallback logic only if we started with Pro and failed, and want to try Flash
+    // If we started with Flash (Free tier), no fallback usually (unless we want to retry same model)
+    if (modelTier === 'pro') {
+        try {
+            console.log(`Falling back to ${fallbackModelId}...`);
+            return await runGeneration(fallbackModelId);
+        } catch (fallbackError: any) {
+            console.error("Fallback generation failed:", fallbackError);
+            if (isQuotaError(fallbackError) || isQuotaError(error)) {
+                throw new Error("⚠️ System Busy: API usage limit reached. Please wait a moment and try again.");
+            }
+            throw fallbackError;
+        }
     }
     
-    console.error("Error generating image:", error);
+    if (isQuotaError(error)) {
+        throw new Error("⚠️ System Busy: API usage limit reached. Please wait a moment and try again.");
+    }
     throw error;
   }
+};
+
+/**
+ * Analyzes an image using the vision model.
+ */
+export const analyzeImage = async (
+    imageBase64: string, 
+    prompt: string
+): Promise<string> => {
+    const apiKey = process.env.API_KEY || "";
+    const ai = new GoogleGenAI({ apiKey });
+    const modelId = "gemini-3-pro-preview";
+
+    const parts: any[] = [];
+    
+    // Add image
+    const matches = imageBase64.match(/^data:(image\/[a-zA-Z+]+);base64,(.+)$/);
+    if (matches && matches.length === 3) {
+        parts.push({
+            inlineData: {
+                mimeType: matches[1],
+                data: matches[2]
+            }
+        });
+    } else {
+        throw new Error("Invalid image format");
+    }
+
+    // Add prompt
+    parts.push({ text: prompt || "Describe this image in detail." });
+
+    try {
+        const response: GenerateContentResponse = await ai.models.generateContent({
+            model: modelId,
+            contents: { parts },
+            config: {
+                // Optional: add system instruction for analysis role
+                systemInstruction: "You are a professional image analyst. Provide detailed, accurate, and helpful insights about the images provided."
+            }
+        });
+
+        const text = response.text;
+        if (!text) throw new Error("No analysis generated.");
+        return text;
+    } catch (error: any) {
+        console.error("Error analyzing image:", error);
+        if (isQuotaError(error)) {
+            throw new Error("⚠️ Analysis limit reached. Please wait a moment and try again.");
+        }
+        throw error;
+    }
 };
