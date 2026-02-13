@@ -1,12 +1,19 @@
-
 import { GoogleGenAI, GenerateContentResponse } from "@google/genai";
 import { AspectRatio, ImageResolution } from "../types";
 
 // Helper to check for quota/rate limit errors
 const isQuotaError = (error: any): boolean => {
+  if (error?.error) {
+     const inner = error.error;
+     if (inner.code === 429 || inner.status === "RESOURCE_EXHAUSTED") return true;
+     if (inner.message && typeof inner.message === 'string' && 
+         (inner.message.includes("429") || inner.message.toLowerCase().includes("quota") || inner.message.includes("RESOURCE_EXHAUSTED"))) {
+         return true;
+     }
+  }
+
   const msg = typeof error?.message === 'string' ? error.message : '';
   const status = error?.status;
-  // Check for 429 status or specific keywords in the message
   return msg.includes("429") || 
          msg.toLowerCase().includes("quota") || 
          msg.includes("RESOURCE_EXHAUSTED") ||
@@ -15,7 +22,7 @@ const isQuotaError = (error: any): boolean => {
 };
 
 /**
- * Uses a lightweight multimodal model with thinking budget to convert a raw user idea 
+ * Uses the Gemini 3 Flash model to convert a raw user idea 
  * into a professional image prompt.
  */
 export const generateEnhancedPrompt = async (
@@ -25,38 +32,36 @@ export const generateEnhancedPrompt = async (
   camera: string | null,
   isAiMode: boolean
 ): Promise<string> => {
-  // Always create a new instance to pick up the most current API key
   const apiKey = process.env.API_KEY || "";
   const ai = new GoogleGenAI({ apiKey });
   
   const modelId = "gemini-3-flash-preview";
   
   const styleInstruction = isAiMode 
-    ? "MODE: Commercial Studio Photography. The goal is to create an image that looks like a real, high-budget commercial photoshoot. Use professional studio lighting (softbox, rim light, butterfly lighting), 8k resolution, ultra-realistic textures, and precise color grading. No cartoon, anime, or painterly effects unless explicitly requested." 
-    : `Target Style: ${style || "General"}`;
+    ? "MODE: Commercial Studio Photography. The goal is to create an image that looks like a real, high-budget commercial photoshoot. Use professional studio lighting (softbox, rim light, butterfly lighting), 8k resolution, ultra-realistic textures, and precise color grading." 
+    : `Target Style: ${style || "Photorealistic"}`;
 
   const cameraInstruction = isAiMode
-    ? "Camera: Medium Format Digital (e.g., Phase One XF). Lens: 85mm Portrait or 50mm Standard. Aperture: f/8 for sharpness. Lighting: Three-point studio setup."
+    ? "Camera: Medium Format Digital (e.g., Phase One XF). Lens: 85mm Portrait or 50mm Standard."
     : `Camera Angle: ${camera || "Neutral"}`;
 
   const systemInstruction = `
-    You are an expert AI art director and Commercial Photographer.
-    Your task: Convert a raw description and optional reference images into a highly detailed image generation prompt.
+    You are an expert AI art director.
+    Your task: Convert a raw user description into a detailed image generation prompt.
     
     ${styleInstruction}
     ${cameraInstruction}
     
     Guidelines:
-    1. Analyze reference images (if any) for style, palette, and composition.
-    2. Enhance the text description with visual keywords specific to the chosen style and camera angle.
-    3. If the user provided a very short description, expand on it creatively.
-    4. Provide technical details: lighting, depth of field, texture, and medium.
-    5. Output ONLY the raw prompt text. Do not add intro/outro text.
+    1. Enhance the text description with visual keywords specific to the style.
+    2. If the user provided a very short description, expand on it creatively.
+    3. Provide technical details: lighting, depth of field, texture, and medium.
+    4. Output ONLY the raw prompt text. Do not add intro/outro text.
   `;
 
   try {
     const parts: any[] = [];
-    const basePrompt = userDescription || (isAiMode ? "Create a masterpiece commercial product shot." : `Create a ${style} image.`);
+    const basePrompt = userDescription || (isAiMode ? "Create a masterpiece commercial product shot." : `Create a ${style || "Photorealistic"} image.`);
     
     parts.push({ text: basePrompt });
 
@@ -77,9 +82,7 @@ export const generateEnhancedPrompt = async (
       contents: { parts },
       config: {
         systemInstruction: systemInstruction,
-        temperature: 1.0,
-        // Use thinking budget for better art direction reasoning
-        thinkingConfig: { thinkingBudget: 4000 }
+        temperature: 0.7, // Lower temperature for more consistent results
       }
     });
 
@@ -101,7 +104,6 @@ interface ImageConfig {
   useGoogleSearch?: boolean;
 }
 
-// Normalize aspect ratios to standard values supported by the API to prevent 400 errors
 const normalizeAspectRatio = (ratio: AspectRatio): string => {
   switch (ratio) {
     case "2:3": return "3:4";
@@ -127,12 +129,12 @@ export const generateImage = async (
   style: string = "Cinematic",
   camera: string | null = null,
   maskImage: string | null = null,
-  modelTier: 'flash' | 'pro' = 'pro'
+  modelTier: 'flash' | 'pro' = 'flash'
 ): Promise<string> => {
   const apiKey = process.env.API_KEY || "";
   const ai = new GoogleGenAI({ apiKey });
   
-  // Select model based on tier
+  // Map 'flash' to the Nano Banana equivalent (gemini-2.5-flash-image)
   const targetModelId = modelTier === 'pro' ? "gemini-3-pro-image-preview" : "gemini-2.5-flash-image";
   const fallbackModelId = "gemini-2.5-flash-image";
 
@@ -141,7 +143,6 @@ export const generateImage = async (
       
       const parts: any[] = [];
       
-      // 1. Add Reference Images
       referenceImages.forEach((base64String) => {
          const matches = base64String.match(/^data:(image\/[a-zA-Z+]+);base64,(.+)$/);
          if (matches && matches.length === 3) {
@@ -154,7 +155,6 @@ export const generateImage = async (
          }
       });
 
-      // 2. Add Mask if present
       if (maskImage) {
           const matches = maskImage.match(/^data:(image\/[a-zA-Z+]+);base64,(.+)$/);
           if (matches && matches.length === 3) {
@@ -167,7 +167,6 @@ export const generateImage = async (
           }
       }
 
-      // 3. Construct Prompt
       let styledPrompt = `Style: ${style}. ${camera ? `Camera/Lens: ${camera}.` : ''} ${prompt}`;
       if (maskImage) {
           styledPrompt = `EDIT INSTRUCTION: Modify the image area covered by the white mask. ${prompt}. Keep the rest of the image exactly as is. Match the style, lighting, and perspective of the original image.`;
@@ -179,12 +178,10 @@ export const generateImage = async (
           aspectRatio: normalizeAspectRatio(config.aspectRatio),
       };
 
-      // imageSize is only supported by gemini-3-pro-image-preview
       if (isProModel) {
           genConfig.imageSize = config.resolution;
       }
 
-      // Google Search is only available for gemini-3-pro-image-preview
       const tools = config.useGoogleSearch && isProModel ? [{ googleSearch: {} }] : undefined;
 
       const response: GenerateContentResponse = await ai.models.generateContent({
@@ -212,13 +209,10 @@ export const generateImage = async (
   };
 
   try {
-    // Attempt generation with target model
     return await runGeneration(targetModelId);
   } catch (error: any) {
     console.warn(`Attempt with ${targetModelId} failed:`, error);
     
-    // Fallback logic only if we started with Pro and failed, and want to try Flash
-    // If we started with Flash (Free tier), no fallback usually (unless we want to retry same model)
     if (modelTier === 'pro') {
         try {
             console.log(`Falling back to ${fallbackModelId}...`);
@@ -239,20 +233,16 @@ export const generateImage = async (
   }
 };
 
-/**
- * Analyzes an image using the vision model.
- */
 export const analyzeImage = async (
     imageBase64: string, 
     prompt: string
 ): Promise<string> => {
     const apiKey = process.env.API_KEY || "";
     const ai = new GoogleGenAI({ apiKey });
-    const modelId = "gemini-3-pro-preview";
+    const modelId = "gemini-3-flash-preview";
 
     const parts: any[] = [];
     
-    // Add image
     const matches = imageBase64.match(/^data:(image\/[a-zA-Z+]+);base64,(.+)$/);
     if (matches && matches.length === 3) {
         parts.push({
@@ -265,7 +255,6 @@ export const analyzeImage = async (
         throw new Error("Invalid image format");
     }
 
-    // Add prompt
     parts.push({ text: prompt || "Describe this image in detail." });
 
     try {
@@ -273,7 +262,6 @@ export const analyzeImage = async (
             model: modelId,
             contents: { parts },
             config: {
-                // Optional: add system instruction for analysis role
                 systemInstruction: "You are a professional image analyst. Provide detailed, accurate, and helpful insights about the images provided."
             }
         });
@@ -289,3 +277,47 @@ export const analyzeImage = async (
         throw error;
     }
 };
+
+export const transcribeAudio = async (
+    audioBase64: string
+): Promise<string> => {
+    const apiKey = process.env.API_KEY || "";
+    const ai = new GoogleGenAI({ apiKey });
+    const modelId = "gemini-3-flash-preview";
+
+    const parts: any[] = [];
+
+    const matches = audioBase64.match(/^data:(audio\/[a-zA-Z0-9.-]+);base64,(.+)$/);
+    if (matches && matches.length === 3) {
+        parts.push({
+            inlineData: {
+                mimeType: matches[1],
+                data: matches[2]
+            }
+        });
+    } else {
+        throw new Error("Invalid audio data format");
+    }
+
+    parts.push({ text: "Transcribe this audio exactly as spoken. Ignore background noise." });
+
+    try {
+        const response: GenerateContentResponse = await ai.models.generateContent({
+            model: modelId,
+            contents: { parts },
+            config: {
+              systemInstruction: "You are a professional transcriber."
+            }
+        });
+
+        const text = response.text;
+        if (!text) throw new Error("No transcription generated.");
+        return text;
+    } catch (error: any) {
+        console.error("Error transcribing audio:", error);
+        if (isQuotaError(error)) {
+            throw new Error("⚠️ Transcription limit reached. Please wait a moment and try again.");
+        }
+        throw error;
+    }
+}

@@ -1,5 +1,7 @@
 {
   "name": " NEW Imagix studio  ",
   "description": "Professional AI image generation and creative suite.",
-  "requestFramePermissions": []
+  "requestFramePermissions": [
+    "microphone"
+  ]
 }
