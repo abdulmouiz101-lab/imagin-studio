@@ -75,10 +75,11 @@ import {
   Files,
   Mic,
   Square,
-  StopCircle
+  StopCircle,
+  FileCode
 } from 'lucide-react';
 import { AppStep, HistoryItem, AspectRatio, ImageResolution } from './types';
-import { generateEnhancedPrompt, generateImage, analyzeImage, transcribeAudio } from './services/geminiService';
+import { generateEnhancedPrompt, generateImage, analyzeImage, transcribeAudio, vectorizeImage } from './services/geminiService';
 
 // --- Types ---
 type PlanType = 'free' | 'standard' | 'pro';
@@ -263,91 +264,6 @@ const SilverProgressBar = ({ isDark }: { isDark: boolean }) => {
          }`}
          style={{ width: `${progress}%` }}
        ></div>
-    </div>
-  );
-};
-
-const MagicLoader = () => {
-  const canvasRef = useRef<HTMLCanvasElement>(null);
-
-  useEffect(() => {
-    const canvas = canvasRef.current;
-    if (!canvas) return;
-    const ctx = canvas.getContext('2d');
-    if (!ctx) return;
-
-    let particles: { x: number; y: number; size: number; speedY: number; speedX: number; color: string; alpha: number; life: number }[] = [];
-    let animationId: number;
-    const colors = ['#A855F7', '#D8B4FE', '#E9D5FF', '#ffffff', '#C084FC'];
-
-    const createParticle = () => {
-       const x = Math.random() * canvas.width;
-       const y = canvas.height + Math.random() * 20;
-       return {
-         x,
-         y,
-         size: Math.random() * 3,
-         speedY: Math.random() * 2 + 1,
-         speedX: (Math.random() - 0.5) * 1,
-         color: colors[Math.floor(Math.random() * colors.length)],
-         alpha: 1,
-         life: Math.random() * 0.5 + 0.5
-       };
-    };
-
-    const resize = () => {
-      const parent = canvas.parentElement;
-      if (parent) {
-         canvas.width = parent.clientWidth;
-         canvas.height = parent.clientHeight;
-      }
-    };
-
-    const init = () => {
-       resize();
-       for(let i=0; i<50; i++) particles.push(createParticle());
-    };
-
-    const animate = () => {
-       if(!ctx) return;
-       ctx.clearRect(0, 0, canvas.width, canvas.height);
-       if (particles.length < 150) particles.push(createParticle());
-       for (let i = 0; i < particles.length; i++) {
-          const p = particles[i];
-          ctx.globalAlpha = p.alpha;
-          ctx.fillStyle = p.color;
-          ctx.shadowBlur = 10;
-          ctx.shadowColor = p.color;
-          ctx.beginPath();
-          ctx.arc(p.x, p.y, p.size, 0, Math.PI * 2);
-          ctx.fill();
-          p.y -= p.speedY;
-          p.x += p.speedX;
-          p.alpha -= 0.005;
-          if (p.alpha <= 0 || p.y < 0) particles[i] = createParticle();
-       }
-       animationId = requestAnimationFrame(animate);
-    };
-
-    window.addEventListener('resize', resize);
-    init();
-    animate();
-
-    return () => {
-       window.removeEventListener('resize', resize);
-       cancelAnimationFrame(animationId);
-    };
-  }, []);
-
-  return (
-    <div className="absolute inset-0 z-50 flex flex-col items-center justify-center bg-black/60 backdrop-blur-sm animate-fade-in overflow-hidden rounded-2xl">
-       <canvas ref={canvasRef} className="absolute inset-0 w-full h-full pointer-events-none" />
-       <div className="relative z-10 flex flex-col items-center gap-4">
-          <div className="p-4 rounded-full bg-purple-500/20 border border-purple-500/40 animate-pulse-slow shadow-[0_0_30px_rgba(168,85,247,0.4)]">
-             <Wand2 size={32} className="text-purple-300 animate-spin-slow" />
-          </div>
-          <span className="text-sm font-bold text-white uppercase tracking-[0.2em] text-glow">Refining Edges...</span>
-       </div>
     </div>
   );
 };
@@ -712,6 +628,10 @@ const App: React.FC = () => {
   const [analysisResult, setAnalysisResult] = useState<string | null>(null);
   const [isAnalyzing, setIsAnalyzing] = useState<boolean>(false);
   const analysisInputRef = useRef<HTMLInputElement>(null);
+  
+  // Vectorizer State
+  const [analysisMode, setAnalysisMode] = useState<'describe' | 'vectorize'>('describe');
+  const [vectorizeResult, setVectorizeResult] = useState<string | null>(null);
 
   // Audio Transcription State
   const [isRecording, setIsRecording] = useState<boolean>(false);
@@ -1023,16 +943,26 @@ const App: React.FC = () => {
       
       setError(null);
       setIsAnalyzing(true);
-      setAnalysisResult(null);
-
-      try {
-          const result = await analyzeImage(analysisImage, "Transcribe all text visible in this image exactly as it appears. Output only the text content. If there is no text, say 'No text detected'.");
-          setAnalysisResult(result);
-      } catch (err: any) {
-           setError(err.message || "Analysis failed.");
-      } finally {
-          setIsAnalyzing(false);
+      
+      // Determine mode
+      if (analysisMode === 'vectorize') {
+         setVectorizeResult(null);
+         try {
+            const svgCode = await vectorizeImage(analysisImage);
+            setVectorizeResult(svgCode);
+         } catch (err: any) {
+            setError(err.message || "Vectorization failed.");
+         }
+      } else {
+         setAnalysisResult(null);
+         try {
+             const result = await analyzeImage(analysisImage, "Transcribe all text visible in this image exactly as it appears. Output only the text content. If there is no text, say 'No text detected'.");
+             setAnalysisResult(result);
+         } catch (err: any) {
+              setError(err.message || "Analysis failed.");
+         }
       }
+      setIsAnalyzing(false);
   };
 
   const handleStartRecording = async () => {
@@ -1301,12 +1231,27 @@ const App: React.FC = () => {
     setBgRemoverImage(null);
     setBgRemoverResult(null);
     setImageCount(1);
+    setAnalysisImage(null);
+    setAnalysisResult(null);
+    setVectorizeResult(null);
   };
 
   const handleUpdatePlan = (newPlan: PlanType) => {
     setPlan(newPlan);
     setPurchaseDate(Date.now());
     setCurrentStep(AppStep.INPUT_IDEA);
+  };
+  
+  const handleDownloadSvg = () => {
+      if (!vectorizeResult) return;
+      const blob = new Blob([vectorizeResult], { type: 'image/svg+xml' });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = `vector-${Date.now()}.svg`;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
   };
 
   if (!apiKeyReady || !userName) return <LoginScreen onConnect={handleConnect} isDark={isDark} />;
@@ -1688,19 +1633,63 @@ const App: React.FC = () => {
              <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 w-full animate-slide-up">
                 <div className={`glass-panel rounded-3xl p-6 flex flex-col gap-4 relative overflow-hidden ${isDark ? 'border-white/20' : 'border-black/5 bg-white/60'}`}>
                     <ConicBeam isDark={isDark} />
-                    <h3 className={`font-display font-bold text-xl relative z-10 ${isDark ? 'text-white' : 'text-zinc-900'}`}>Image Analysis</h3>
-                    <div className={`aspect-square rounded-2xl border-2 border-dashed flex flex-col items-center justify-center relative overflow-hidden z-10 ${isDark ? 'border-white/10 bg-black/20' : 'border-black/10 bg-zinc-50'}`}>
+                    <div className="flex justify-between items-center relative z-10">
+                       <h3 className={`font-display font-bold text-xl ${isDark ? 'text-white' : 'text-zinc-900'}`}>Image Source</h3>
+                       <div className="flex bg-black/20 rounded-lg p-1 border border-white/5">
+                           <button onClick={() => setAnalysisMode('describe')} className={`px-3 py-1.5 rounded-md text-[10px] font-bold uppercase tracking-widest transition-all ${analysisMode === 'describe' ? 'bg-white text-black' : 'text-zinc-500 hover:text-white'}`}>Analyze</button>
+                           <button onClick={() => setAnalysisMode('vectorize')} className={`px-3 py-1.5 rounded-md text-[10px] font-bold uppercase tracking-widest transition-all flex items-center gap-1 ${analysisMode === 'vectorize' ? 'bg-indigo-500 text-white shadow-lg shadow-indigo-500/20' : 'text-zinc-500 hover:text-white'}`}><FileCode size={10} /> Vectorize</button>
+                       </div>
+                    </div>
+                    
+                    <div className={`aspect-square rounded-2xl border-2 border-dashed flex flex-col items-center justify-center relative overflow-hidden z-10 transition-colors ${isDark ? 'border-white/10 bg-black/20 hover:bg-black/30' : 'border-black/10 bg-zinc-50 hover:bg-zinc-100'}`}>
                         {analysisImage ? <img src={analysisImage} className="w-full h-full object-contain" /> : <div className="text-center text-zinc-500"><ScanEye size={32} className="mx-auto mb-2" /><span className="text-xs font-bold uppercase">Upload Image</span></div>}
                         <input type="file" ref={analysisInputRef} onChange={(e) => { const file = e.target.files?.[0]; if(file) { const r = new FileReader(); r.onload = (e) => setAnalysisImage(e.target?.result as string); r.readAsDataURL(file); } }} hidden accept="image/*" />
                         <button onClick={() => analysisInputRef.current?.click()} className="absolute inset-0"></button>
                     </div>
-                    <button onClick={handleAnalyzeImage} disabled={!analysisImage || isAnalyzing} className="btn-primary py-3 w-full flex items-center justify-center gap-2 relative z-10">{isAnalyzing ? <Loader2 className="animate-spin" /> : 'Analyze Image'}</button>
+                    
+                    <button 
+                        onClick={handleAnalyzeImage} 
+                        disabled={!analysisImage || isAnalyzing} 
+                        className={`btn-primary py-3 w-full flex items-center justify-center gap-2 relative z-10 ${analysisMode === 'vectorize' ? 'border-indigo-500/50 text-indigo-500' : ''}`}
+                    >
+                        {isAnalyzing ? <Loader2 className="animate-spin" /> : analysisMode === 'vectorize' ? 'Convert to SVG' : 'Analyze Image'}
+                    </button>
                 </div>
+                
                 <div className={`glass-panel rounded-3xl p-6 flex flex-col gap-4 relative overflow-hidden ${isDark ? 'border-white/20' : 'border-black/5 bg-white/60'}`}>
                    <ConicBeam isDark={isDark} />
-                   <h3 className={`font-display font-bold text-xl relative z-10 ${isDark ? 'text-white' : 'text-zinc-900'}`}>Results</h3>
-                   <div className={`flex-1 rounded-2xl p-6 overflow-y-auto z-10 ${isDark ? 'bg-black/40 text-zinc-300' : 'bg-zinc-100 text-zinc-700'}`}>
-                      {analysisResult ? <p className="leading-relaxed whitespace-pre-wrap">{analysisResult}</p> : <div className="h-full flex items-center justify-center text-zinc-500 text-xs uppercase tracking-widest">No analysis data</div>}
+                   <div className="flex items-center justify-between relative z-10">
+                      <h3 className={`font-display font-bold text-xl ${isDark ? 'text-white' : 'text-zinc-900'}`}>Result</h3>
+                      {analysisMode === 'vectorize' && vectorizeResult && (
+                          <button onClick={handleDownloadSvg} className="px-3 py-1.5 rounded-lg bg-indigo-500/20 text-indigo-400 hover:bg-indigo-500/30 text-[10px] font-bold uppercase tracking-widest flex items-center gap-2 transition-all">
+                              <Download size={12} /> Download .SVG
+                          </button>
+                      )}
+                   </div>
+                   
+                   <div className={`flex-1 rounded-2xl p-6 overflow-hidden z-10 relative group ${isDark ? 'bg-black/40 text-zinc-300' : 'bg-zinc-100 text-zinc-700'}`}>
+                      {analysisMode === 'vectorize' ? (
+                          vectorizeResult ? (
+                            <div className="w-full h-full flex items-center justify-center">
+                                {/* Dangerously Set Inner HTML is used here to render the SVG string returned by the API */}
+                                <div className="w-full h-full [&>svg]:w-full [&>svg]:h-full" dangerouslySetInnerHTML={{ __html: vectorizeResult }} />
+                            </div>
+                          ) : (
+                            <div className="h-full flex flex-col items-center justify-center text-zinc-500 gap-2 opacity-40">
+                               <FileCode size={24} />
+                               <span className="text-[10px] font-bold uppercase tracking-widest">No Vector Data</span>
+                            </div>
+                          )
+                      ) : (
+                          analysisResult ? (
+                              <p className="leading-relaxed whitespace-pre-wrap">{analysisResult}</p>
+                          ) : (
+                              <div className="h-full flex flex-col items-center justify-center text-zinc-500 gap-2 opacity-40">
+                                 <ScanEye size={24} />
+                                 <span className="text-[10px] font-bold uppercase tracking-widest">No analysis data</span>
+                              </div>
+                          )
+                      )}
                    </div>
                 </div>
              </div>

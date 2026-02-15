@@ -21,9 +21,19 @@ const isQuotaError = (error: any): boolean => {
          status === "RESOURCE_EXHAUSTED";
 };
 
+// Helper to convert blob to base64
+const blobToBase64 = (blob: Blob): Promise<string> => {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onloadend = () => resolve(reader.result as string);
+    reader.onerror = reject;
+    reader.readAsDataURL(blob);
+  });
+};
+
 /**
- * Uses the Gemini 3 Flash model to convert a raw user idea 
- * into a professional image prompt.
+ * Uses Gemini to act as an AI Prompt Engineer.
+ * Analyzes requirements and references to generate a detailed prompt.
  */
 export const generateEnhancedPrompt = async (
   userDescription: string, 
@@ -38,25 +48,23 @@ export const generateEnhancedPrompt = async (
   const modelId = "gemini-3-flash-preview";
   
   const styleInstruction = isAiMode 
-    ? "MODE: Commercial Studio Photography. The goal is to create an image that looks like a real, high-budget commercial photoshoot. Use professional studio lighting (softbox, rim light, butterfly lighting), 8k resolution, ultra-realistic textures, and precise color grading." 
+    ? "MODE: Commercial Studio Photography. High-budget, ultra-realistic, 8k resolution." 
     : `Target Style: ${style || "Photorealistic"}`;
 
-  const cameraInstruction = isAiMode
-    ? "Camera: Medium Format Digital (e.g., Phase One XF). Lens: 85mm Portrait or 50mm Standard."
-    : `Camera Angle: ${camera || "Neutral"}`;
+  const cameraInstruction = camera ? `Camera settings: ${camera}` : "";
 
   const systemInstruction = `
-    You are an expert AI art director.
-    Your task: Convert a raw user description into a detailed image generation prompt.
+    You are an AI Image Prompt Engineer. 
+    When a user asks for a mockup or image, analyze their reference and requirements. 
+    Generate a highly detailed English prompt suitable for the Flux image generation model.
     
     ${styleInstruction}
     ${cameraInstruction}
     
     Guidelines:
-    1. Enhance the text description with visual keywords specific to the style.
-    2. If the user provided a very short description, expand on it creatively.
-    3. Provide technical details: lighting, depth of field, texture, and medium.
-    4. Output ONLY the raw prompt text. Do not add intro/outro text.
+    1. Include details on lighting, texture, composition, and mood.
+    2. If reference images are provided, incorporate their key visual elements into the text description.
+    3. Output ONLY the raw prompt text. Do not add intro/outro text.
   `;
 
   try {
@@ -82,13 +90,14 @@ export const generateEnhancedPrompt = async (
       contents: { parts },
       config: {
         systemInstruction: systemInstruction,
-        temperature: 0.7, // Lower temperature for more consistent results
+        temperature: 0.7,
       }
     });
 
     const text = response.text;
     if (!text) throw new Error("No text generated from the model.");
-    return text.trim();
+    
+    return text.trim().replace(/^["']+|["']+$/g, '').replace(/^Prompt:\s*/i, '');
   } catch (error) {
     console.error("Error enhancing prompt:", error);
     if (isQuotaError(error)) {
@@ -104,23 +113,10 @@ interface ImageConfig {
   useGoogleSearch?: boolean;
 }
 
-const normalizeAspectRatio = (ratio: AspectRatio): string => {
-  switch (ratio) {
-    case "2:3": return "3:4";
-    case "3:2": return "4:3";
-    case "21:9": return "16:9";
-    case "1:1": 
-    case "3:4":
-    case "4:3":
-    case "9:16":
-    case "16:9":
-      return ratio;
-    default: return "1:1";
-  }
-};
-
 /**
- * Uses the image model to generate an image.
+ * Generates an image using Google Gemini Image Models.
+ * Uses 'gemini-2.5-flash-image' for standard/free tiers.
+ * Uses 'gemini-3-pro-image-preview' for pro tier.
  */
 export const generateImage = async (
   prompt: string, 
@@ -128,108 +124,113 @@ export const generateImage = async (
   referenceImages: string[] = [], 
   style: string = "Cinematic",
   camera: string | null = null,
-  maskImage: string | null = null,
+  maskImage: string | null = null, 
   modelTier: 'flash' | 'pro' = 'flash'
 ): Promise<string> => {
   const apiKey = process.env.API_KEY || "";
   const ai = new GoogleGenAI({ apiKey });
-  
-  // Map 'flash' to the Nano Banana equivalent (gemini-2.5-flash-image)
-  const targetModelId = modelTier === 'pro' ? "gemini-3-pro-image-preview" : "gemini-2.5-flash-image";
-  const fallbackModelId = "gemini-2.5-flash-image";
 
-  const runGeneration = async (modelId: string) => {
-      const isProModel = modelId === "gemini-3-pro-image-preview";
-      
-      const parts: any[] = [];
-      
-      referenceImages.forEach((base64String) => {
-         const matches = base64String.match(/^data:(image\/[a-zA-Z+]+);base64,(.+)$/);
-         if (matches && matches.length === 3) {
-           parts.push({
-              inlineData: {
-                mimeType: matches[1],
-                data: matches[2]
-              }
-           });
-         }
-      });
+  // Select Model based on tier
+  // Default to 2.5 Flash Image. Upgrade to 3 Pro Image if 'pro' tier.
+  const model = modelTier === 'pro' ? 'gemini-3-pro-image-preview' : 'gemini-2.5-flash-image';
 
-      if (maskImage) {
-          const matches = maskImage.match(/^data:(image\/[a-zA-Z+]+);base64,(.+)$/);
-          if (matches && matches.length === 3) {
-              parts.push({
-                  inlineData: {
-                      mimeType: matches[1],
-                      data: matches[2]
-                  }
-              });
-          }
-      }
+  // Map App Aspect Ratio to Gemini Supported Ratios
+  // Gemini Supports: "1:1", "3:4", "4:3", "9:16", "16:9"
+  const ratioMap: Record<string, string> = {
+    '1:1': '1:1',
+    '16:9': '16:9',
+    '9:16': '9:16',
+    '4:3': '4:3',
+    '3:4': '3:4',
+    '21:9': '16:9', // Closest match
+    '3:2': '4:3',   // Closest match
+    '2:3': '3:4'    // Closest match
+  };
+  const targetRatio = ratioMap[config.aspectRatio] || '1:1';
 
-      let styledPrompt = `Style: ${style}. ${camera ? `Camera/Lens: ${camera}.` : ''} ${prompt}`;
-      if (maskImage) {
-          styledPrompt = `EDIT INSTRUCTION: Modify the image area covered by the white mask. ${prompt}. Keep the rest of the image exactly as is. Match the style, lighting, and perspective of the original image.`;
-      }
+  // 1. Prepare Content Parts
+  const parts: any[] = [];
 
-      parts.push({ text: styledPrompt });
+  // Add reference images (used for Editing or Image-to-Image)
+  // If maskImage exists, treat it as a reference/source for the edit operation
+  const imagesToInclude = [...referenceImages];
+  if (maskImage && !imagesToInclude.includes(maskImage)) {
+      imagesToInclude.push(maskImage);
+  }
 
-      const genConfig: any = {
-          aspectRatio: normalizeAspectRatio(config.aspectRatio),
-      };
-
-      if (isProModel) {
-          genConfig.imageSize = config.resolution;
-      }
-
-      const tools = config.useGoogleSearch && isProModel ? [{ googleSearch: {} }] : undefined;
-
-      const response: GenerateContentResponse = await ai.models.generateContent({
-        model: modelId,
-        contents: { parts },
-        config: {
-          imageConfig: genConfig,
-          tools: tools as any
+  for (const imgStr of imagesToInclude) {
+    const matches = imgStr.match(/^data:(image\/[a-zA-Z+]+);base64,(.+)$/);
+    if (matches && matches.length === 3) {
+      parts.push({
+        inlineData: {
+          mimeType: matches[1],
+          data: matches[2]
         }
       });
+    }
+  }
 
-      if (!response.candidates || response.candidates.length === 0) {
-          throw new Error("Generation blocked by safety filters or failed. Try a different prompt.");
-      }
+  // Add Prompt
+  let cleanPrompt = prompt.replace(/\s+/g, ' ').trim();
+  const fullPromptParts = [cleanPrompt];
+  if (style) fullPromptParts.push(`${style} style`);
+  if (camera) fullPromptParts.push(camera);
+  
+  parts.push({ text: fullPromptParts.join(', ') });
 
-      const partsList = response.candidates[0].content.parts;
-      for (const part of partsList) {
-          if (part.inlineData && part.inlineData.data) {
-              const base64Data = part.inlineData.data;
-              const mimeType = part.inlineData.mimeType || 'image/png';
-              return `data:${mimeType};base64,${base64Data}`;
-          }
-      }
-      throw new Error("No image data returned from the API.");
+  // 2. Prepare Config
+  const imageConfig: any = {
+    aspectRatio: targetRatio,
   };
 
+  // Image Size is only supported on Pro model
+  if (model === 'gemini-3-pro-image-preview') {
+    imageConfig.imageSize = config.resolution || "1K";
+  }
+
+  const reqConfig: any = {
+    imageConfig: imageConfig
+  };
+
+  // Google Search Tool (Only for Pro model)
+  if (config.useGoogleSearch && model === 'gemini-3-pro-image-preview') {
+      reqConfig.tools = [{googleSearch: {}}];
+  }
+
   try {
-    return await runGeneration(targetModelId);
-  } catch (error: any) {
-    console.warn(`Attempt with ${targetModelId} failed:`, error);
-    
-    if (modelTier === 'pro') {
-        try {
-            console.log(`Falling back to ${fallbackModelId}...`);
-            return await runGeneration(fallbackModelId);
-        } catch (fallbackError: any) {
-            console.error("Fallback generation failed:", fallbackError);
-            if (isQuotaError(fallbackError) || isQuotaError(error)) {
-                throw new Error("⚠️ System Busy: API usage limit reached. Please wait a moment and try again.");
-            }
-            throw fallbackError;
+    const response = await ai.models.generateContent({
+      model: model,
+      contents: { parts },
+      config: reqConfig
+    });
+
+    // 3. Extract Image from Response
+    if (response.candidates && response.candidates[0].content && response.candidates[0].content.parts) {
+      for (const part of response.candidates[0].content.parts) {
+        if (part.inlineData) {
+          return `data:${part.inlineData.mimeType};base64,${part.inlineData.data}`;
         }
+      }
     }
     
-    if (isQuotaError(error)) {
-        throw new Error("⚠️ System Busy: API usage limit reached. Please wait a moment and try again.");
+    // Check for text feedback if no image (e.g., refusal)
+    const textOutput = response.text;
+    if (textOutput) {
+        console.warn("Model returned text instead of image:", textOutput);
+        throw new Error(`Generation blocked or failed: ${textOutput.slice(0, 100)}...`);
     }
-    throw error;
+
+    throw new Error("No image generated from Gemini.");
+
+  } catch (error: any) {
+    console.error("Gemini Image Generation Error:", error);
+    if (isQuotaError(error)) {
+        throw new Error("⚠️ Image generation limit reached. Please wait a moment.");
+    }
+    if (error.message.includes("SAFETY")) {
+        throw new Error("⚠️ The prompt violated safety guidelines. Please modify your request.");
+    }
+    throw new Error(error.message || "Image generation failed.");
   }
 };
 
@@ -320,4 +321,52 @@ export const transcribeAudio = async (
         }
         throw error;
     }
-}
+};
+
+export const vectorizeImage = async (
+    imageBase64: string
+): Promise<string> => {
+    // Uses ImageTracer.js (loaded in index.html) to perform client-side vectorization
+    // This serves as a "Free API" alternative as requested.
+    if (typeof window === 'undefined' || !(window as any).ImageTracer) {
+         throw new Error("Vectorization library missing. Please refresh the page.");
+    }
+
+    return new Promise((resolve, reject) => {
+        try {
+            // Configuration for decent quality photo-to-vector
+            // Simulates high-quality vectorization APIs
+            const options = {
+                ltres: 1, // Linear error threshold (lower = more detail)
+                qtres: 1, // Quadratic error threshold (lower = more detail)
+                pathomit: 8, // Path omission threshold (higher = less noise)
+                rightangleenhance: false, // Enhance right angles
+                colorsampling: 2, // 0=disabled, 1=random, 2=deterministic
+                numberofcolors: 16, // Max colors to use
+                mincolorratio: 0.02,
+                colorquantcycles: 3,
+                scale: 1,
+                simplifytolerance: 0,
+                roundcoords: 1, 
+                lcpr: 0,
+                qcpr: 0,
+                desc: false,
+                viewbox: true, // IMPORTANT: Adds viewBox for scaling
+                blurradius: 0,
+                blurdelta: 20
+            };
+            
+            (window as any).ImageTracer.imageToSVG(
+                imageBase64,
+                (svgstr: string) => {
+                    if (!svgstr) reject(new Error("Failed to generate SVG string."));
+                    resolve(svgstr);
+                },
+                options
+            );
+        } catch (e) {
+            console.error("Vectorization error:", e);
+            reject(new Error("Failed to convert image to vector."));
+        }
+    });
+};
